@@ -12,7 +12,11 @@ dotenv.config();
 const app = express();
 const port = Number(process.env.PORT || 4000);
 const JWT_SECRET = process.env.JWT_SECRET || 'hustle254-dev-secret';
-const clientUrl = process.env.CLIENT_URL || 'http://localhost:4173';
+const clientOrigins = [process.env.CLIENT_URL || 'http://localhost:4173,http://localhost:4174', process.env.CORS_ORIGINS || '']
+  .join(',')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 const databaseUrl = process.env.DATABASE_URL || '';
 const isProduction = process.env.NODE_ENV === 'production';
 const ADMIN_ACCESS_PASSWORD = process.env.ADMIN_ACCESS_PASSWORD || '';
@@ -118,7 +122,13 @@ async function verifyDatabase() {
   }
 }
 
-app.use(cors({ origin: clientUrl, credentials: true }));
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || clientOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('Origin is not allowed by CORS.'));
+  },
+  credentials: true,
+}));
 app.use(express.json({ limit: '5mb' }));
 
 function generateToken(user) {
