@@ -19,7 +19,7 @@ services:
       - key: ADMIN_ACCESS_PASSWORD
         sync: false
       - key: CLIENT_URL
-        value: https://hustle254-web.onrender.com,https://stagesharks-crypto.github.io
+        value: https://hustle254.onrender.com,https://hustle254-web.onrender.com,https://stagesharks-crypto.github.io
       - key: PGPOOL_MAX
         value: "5"
 
