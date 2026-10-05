@@ -298,6 +298,18 @@ async function loadWallet(userId) {
   return mockWallets.find((wallet) => wallet.user_id === Number(userId)) || null;
 }
 
+app.get('/', (req, res) => {
+  res.json({
+    service: 'Hustle254 API',
+    status: 'ok',
+    database: databaseOnline ? 'connected' : 'fallback',
+    endpoints: {
+      health: '/api/health',
+      tasks: '/api/tasks',
+    },
+  });
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', database: databaseOnline ? 'connected' : 'fallback' });
 });
