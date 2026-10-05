@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: hustle254-api
+    runtime: node
+    plan: free
+    region: ohio
+    buildCommand: npm ci
+    startCommand: npm run server
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22.16.0"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_ACCESS_PASSWORD
+        sync: false
+      - key: CLIENT_URL
+        value: https://hustle254-web.onrender.com
+      - key: PGPOOL_MAX
+        value: "5"
+
+  - type: web
+    name: hustle254-web
+    runtime: static
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        fromService:
+          type: web
+          name: hustle254-api
+          envVarKey: RENDER_EXTERNAL_URL
