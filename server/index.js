@@ -35,6 +35,7 @@ const mockTaskPosts = [];
 const adminAccessAttempts = new Map();
 const mockSubmissions = [];
 const mockPayouts = [];
+const mockWalletTransactions = [];
 const mockReferrals = [];
 
 let databaseOnline = false;
@@ -49,6 +50,7 @@ async function verifyDatabase() {
     const requiredTables = [
       'users',
       'wallets',
+      'wallet_transactions',
       'tasks',
       'task_posts',
       'task_submissions',
@@ -69,6 +71,7 @@ async function verifyDatabase() {
     const requiredColumns = {
       task_posts: ['poster_user_id'],
       task_submissions: ['task_post_id'],
+      wallet_transactions: ['transaction_type', 'amount_kes', 'status', 'transaction_reference', 'destination'],
     };
     const columnResult = await pool.query(
       `SELECT table_name, column_name FROM information_schema.columns
@@ -169,6 +172,23 @@ const allowedTaskCategories = new Set([
   'Research',
   'Other',
 ]);
+const allowedDepositMethods = new Set(['mpesa', 'mpesa_till', 'paypal', 'usdt_bep20']);
+const allowedWithdrawalMethods = new Set(['mpesa', 'paypal', 'crypto', 'till', 'bank']);
+
+function parseKesAmount(value) {
+  if (value === null || value === undefined || String(value).trim() === '') return null;
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 10000000) return null;
+  return Math.round(amount * 100) / 100;
+}
+
+function getMockWalletTransactionById(id) {
+  return mockWalletTransactions.find((transaction) => String(transaction.id) === String(id));
+}
+
+function getMockWalletByUserId(userId) {
+  return mockWallets.find((wallet) => String(wallet.user_id) === String(userId));
+}
 
 function validateTaskPost(input = {}) {
   const title = String(input.title || '').trim();
@@ -279,6 +299,106 @@ async function loadWallet(userId) {
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', database: databaseOnline ? 'connected' : 'fallback' });
+});
+
+function matchesAdminPassword(value) {
+  if (!ADMIN_ACCESS_PASSWORD) return false;
+  const suppliedPassword = Buffer.from(String(value || ''));
+  const configuredPassword = Buffer.from(ADMIN_ACCESS_PASSWORD);
+  return suppliedPassword.length === configuredPassword.length
+    && timingSafeEqual(suppliedPassword, configuredPassword);
+}
+
+app.get('/api/admin/setup-status', async (req, res) => {
+  if (!databaseOnline) {
+    return res.status(503).json({ message: 'Admin setup requires the connected production database.' });
+  }
+  const result = await pool.query("SELECT EXISTS (SELECT 1 FROM users WHERE role = 'admin') AS admin_exists");
+  return res.json({ available: !result.rows[0].admin_exists });
+});
+
+app.post('/api/admin/register', async (req, res) => {
+  if (!databaseOnline) {
+    return res.status(503).json({ message: 'Admin setup requires the connected production database.' });
+  }
+  if (!ADMIN_ACCESS_PASSWORD) {
+    return res.status(503).json({ message: 'Admin password is not configured on the server.' });
+  }
+
+  const { fullName, email: rawEmail, phone, adminPassword } = req.body || {};
+  const email = typeof rawEmail === 'string' ? rawEmail.trim().toLowerCase() : '';
+  const normalizedName = typeof fullName === 'string' ? fullName.trim() : '';
+  const normalizedPhone = typeof phone === 'string' ? phone.trim() : '';
+  if (!normalizedName || !email || !normalizedPhone || !adminPassword) {
+    return res.status(400).json({ message: 'Full name, email, phone, and admin password are required.' });
+  }
+  if (!isValidEmailAddress(email)) {
+    return res.status(400).json({ message: 'Invalid email address. Enter a correctly formatted address.' });
+  }
+
+  const attemptKey = `setup:${req.ip}`;
+  const now = Date.now();
+  let attempt = adminAccessAttempts.get(attemptKey);
+  if (!attempt || now - attempt.windowStartedAt >= 15 * 60 * 1000) {
+    attempt = { failures: 0, windowStartedAt: now, lockedUntil: 0 };
+  }
+  if (attempt.lockedUntil > now) {
+    res.set('Retry-After', String(Math.ceil((attempt.lockedUntil - now) / 1000)));
+    return res.status(429).json({ message: 'Too many incorrect attempts. Try again in 15 minutes.' });
+  }
+  if (!matchesAdminPassword(adminPassword)) {
+    attempt.failures += 1;
+    if (attempt.failures >= 5) attempt.lockedUntil = now + 15 * 60 * 1000;
+    adminAccessAttempts.set(attemptKey, attempt);
+    return res.status(403).json({ message: 'Incorrect admin password.' });
+  }
+  adminAccessAttempts.delete(attemptKey);
+
+  const connection = await pool.connect();
+  try {
+    await connection.query('BEGIN');
+    await connection.query("SELECT pg_advisory_xact_lock(hashtext('hustle254-admin-bootstrap'))");
+    const existingAdmin = await connection.query("SELECT 1 FROM users WHERE role = 'admin' LIMIT 1");
+    if (existingAdmin.rowCount) {
+      await connection.query('ROLLBACK');
+      return res.status(409).json({ message: 'The admin account has already been registered.' });
+    }
+
+    const passwordHash = await bcrypt.hash(ADMIN_ACCESS_PASSWORD, 10);
+    const referralCode = `H${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    const userResult = await connection.query(
+      `INSERT INTO users (full_name, email, phone, password_hash, referral_code, role)
+       VALUES ($1, $2, $3, $4, $5, 'admin') RETURNING *`,
+      [normalizedName, email, normalizedPhone, passwordHash, referralCode]
+    );
+    const user = userResult.rows[0];
+    const walletResult = await connection.query(
+      'INSERT INTO wallets (user_id) VALUES ($1) RETURNING *',
+      [user.id]
+    );
+    await connection.query('COMMIT');
+
+    const token = generateToken(user);
+    const adminToken = jwt.sign(
+      { sub: user.id, email: user.email, role: 'admin', adminAccess: true },
+      JWT_SECRET,
+      { expiresIn: '15m' }
+    );
+    return res.status(201).json({
+      token,
+      adminToken,
+      user: sanitizeUser(user),
+      wallet: walletResult.rows[0],
+    });
+  } catch (error) {
+    await connection.query('ROLLBACK');
+    if (error.code === '23505') {
+      return res.status(409).json({ message: 'Email or phone number is already in use.' });
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
 });
 
 function isValidEmailAddress(value) {
@@ -426,9 +546,7 @@ app.post('/api/admin/access', requireAuth, (req, res) => {
     return res.status(429).json({ message: 'Too many incorrect attempts. Try again in 15 minutes.' });
   }
 
-  const suppliedPassword = Buffer.from(String(req.body?.password || ''));
-  const configuredPassword = Buffer.from(ADMIN_ACCESS_PASSWORD);
-  if (suppliedPassword.length !== configuredPassword.length || !timingSafeEqual(suppliedPassword, configuredPassword)) {
+  if (!matchesAdminPassword(req.body?.password)) {
     attempt.failures += 1;
     if (attempt.failures >= 5) attempt.lockedUntil = now + 15 * 60 * 1000;
     adminAccessAttempts.set(accountId, attempt);
@@ -676,6 +794,11 @@ app.get('/api/user/dashboard', requireAuth, async (req, res) => {
            SELECT 'payout'::text AS activity_type, payouts.method AS description,
                   payouts.status, payouts.created_at, payouts.amount_kes
            FROM payouts WHERE payouts.user_id = $1
+           UNION ALL
+           SELECT wallet_transactions.transaction_type::text AS activity_type,
+                  COALESCE(wallet_transactions.description, wallet_transactions.payment_method, wallet_transactions.destination) AS description,
+                  wallet_transactions.status, wallet_transactions.created_at, wallet_transactions.amount_kes
+           FROM wallet_transactions WHERE wallet_transactions.user_id = $1
          ) AS activity
          ORDER BY created_at DESC LIMIT 10`,
         [req.user.sub]
@@ -707,6 +830,15 @@ app.get('/api/user/dashboard', requireAuth, async (req, res) => {
       created_at: item.created_at,
       amount_kes: null,
     })),
+    ...mockWalletTransactions
+      .filter((item) => String(item.user_id) === String(req.user.sub))
+      .map((item) => ({
+        activity_type: item.transaction_type,
+        description: item.description || item.payment_method || item.destination || item.transaction_reference,
+        status: item.status,
+        created_at: item.created_at,
+        amount_kes: item.amount_kes,
+      })),
     ...mockPayouts.filter((item) => String(item.user_id) === String(req.user.sub)).map((item) => ({
       activity_type: 'payout',
       description: item.method,
@@ -726,6 +858,174 @@ app.get('/api/user/dashboard', requireAuth, async (req, res) => {
       commission_kes: userReferrals.reduce((total, item) => total + Number(item.commission_kes || 0), 0),
     },
     recentActivity,
+  });
+});
+
+app.get('/api/wallet/transactions', requireAuth, async (req, res) => {
+  if (databaseOnline) {
+    const result = await pool.query(
+      `SELECT id, transaction_type, amount_kes, status, payment_method,
+              transaction_reference, destination, description, created_at, reviewed_at
+       FROM wallet_transactions
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT 100`,
+      [req.user.sub]
+    );
+    return res.json({ transactions: result.rows });
+  }
+  return res.json({
+    transactions: mockWalletTransactions
+      .filter((item) => String(item.user_id) === String(req.user.sub))
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
+  });
+});
+
+app.post('/api/wallet/deposits', requireAuth, requireRole('poster'), async (req, res) => {
+  const amount = parseKesAmount(req.body?.amountKes);
+  const paymentMethod = String(req.body?.paymentMethod || '').trim().toLowerCase();
+  const transactionReference = String(req.body?.transactionReference || '').trim();
+  if (!amount) return res.status(400).json({ message: 'Enter a valid deposit amount in KSh.' });
+  if (!allowedDepositMethods.has(paymentMethod)) {
+    return res.status(400).json({ message: 'Choose M-Pesa direct, M-Pesa Till, PayPal, or USDT BEP20 for a poster deposit.' });
+  }
+  if (transactionReference.length < 3 || transactionReference.length > 160) {
+    return res.status(400).json({ message: 'Enter the payment transaction code or blockchain transaction hash (3–160 characters).' });
+  }
+
+  if (databaseOnline) {
+    const connection = await pool.connect();
+    let transaction;
+    try {
+      await connection.query('BEGIN');
+      const walletResult = await connection.query('SELECT id FROM wallets WHERE user_id = $1 FOR UPDATE', [req.user.sub]);
+      const wallet = walletResult.rows[0];
+      if (!wallet) {
+        await connection.query('ROLLBACK');
+        return res.status(409).json({ message: 'Your wallet record is unavailable. Contact support before sending funds.' });
+      }
+      const result = await connection.query(
+        `INSERT INTO wallet_transactions
+          (wallet_id, user_id, transaction_type, amount_kes, status, payment_method, transaction_reference, description)
+         VALUES ($1, $2, 'deposit', $3, 'pending_review', $4, $5, 'Poster deposit awaiting manual verification')
+         RETURNING id, transaction_type, amount_kes, status, payment_method, transaction_reference, created_at`,
+        [wallet.id, req.user.sub, amount, paymentMethod, transactionReference]
+      );
+      [transaction] = result.rows;
+      await connection.query('COMMIT');
+    } catch (error) {
+      await connection.query('ROLLBACK');
+      if (error.code === '23505') {
+        return res.status(409).json({ message: 'That transaction reference has already been submitted.' });
+      }
+      throw error;
+    } finally {
+      connection.release();
+    }
+    return res.status(201).json({
+      message: 'Deposit reference submitted. Funds will be added after admin verification.',
+      transaction,
+    });
+  }
+
+  if (mockWalletTransactions.some((item) => item.transaction_reference?.toLowerCase() === transactionReference.toLowerCase())) {
+    return res.status(409).json({ message: 'That transaction reference has already been submitted.' });
+  }
+  const transaction = {
+    id: `deposit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    user_id: req.user.sub,
+    transaction_type: 'deposit',
+    amount_kes: amount,
+    status: 'pending_review',
+    payment_method: paymentMethod,
+    transaction_reference: transactionReference,
+    created_at: new Date().toISOString(),
+  };
+  mockWalletTransactions.unshift(transaction);
+  return res.status(201).json({ message: 'Deposit reference submitted. Funds will be added after admin verification.', transaction });
+});
+
+app.post('/api/wallet/withdrawals', requireAuth, async (req, res) => {
+  if (!['user', 'poster'].includes(req.user.role)) {
+    return res.status(403).json({ message: 'A user or poster account is required to request a withdrawal.' });
+  }
+  const amount = parseKesAmount(req.body?.amountKes);
+  const paymentMethod = String(req.body?.paymentMethod || '').trim().toLowerCase();
+  const destination = String(req.body?.destination || '').trim();
+  if (!amount) return res.status(400).json({ message: 'Enter a valid withdrawal amount in KSh.' });
+  if (!allowedWithdrawalMethods.has(paymentMethod)) {
+    return res.status(400).json({ message: 'Choose M-Pesa, PayPal, cryptocurrency, till, or bank transfer.' });
+  }
+  if (!destination || destination.length > 300) {
+    return res.status(400).json({ message: 'Enter the account, wallet address, or destination details for the withdrawal.' });
+  }
+
+  if (databaseOnline) {
+    const connection = await pool.connect();
+    let transaction;
+    try {
+      await connection.query('BEGIN');
+      const walletResult = await connection.query(
+        'SELECT id, balance_kes FROM wallets WHERE user_id = $1 FOR UPDATE',
+        [req.user.sub]
+      );
+      const wallet = walletResult.rows[0];
+      if (!wallet) {
+        await connection.query('ROLLBACK');
+        return res.status(409).json({ message: 'Your wallet record is unavailable. Contact support.' });
+      }
+      if (Number(wallet.balance_kes) < amount) {
+        await connection.query('ROLLBACK');
+        return res.status(400).json({ message: 'Insufficient available balance for this withdrawal.' });
+      }
+      const result = await connection.query(
+        `INSERT INTO wallet_transactions
+          (wallet_id, user_id, transaction_type, amount_kes, status, payment_method, destination, description)
+         VALUES ($1, $2, 'withdrawal', $3, 'pending_review', $4, $5, 'Withdrawal request awaiting manual admin processing')
+         RETURNING id, transaction_type, amount_kes, status, payment_method, destination, created_at`,
+        [wallet.id, req.user.sub, amount, paymentMethod, destination]
+      );
+      [transaction] = result.rows;
+      await connection.query(
+        `UPDATE wallets
+         SET balance_kes = balance_kes - $2, pending_kes = pending_kes + $2, updated_at = NOW()
+         WHERE id = $1`,
+        [wallet.id, amount]
+      );
+      await connection.query('COMMIT');
+    } catch (error) {
+      await connection.query('ROLLBACK');
+      throw error;
+    } finally {
+      connection.release();
+    }
+    return res.status(201).json({
+      message: 'Withdrawal request sent to admin. The requested amount is reserved until the request is approved or rejected.',
+      transaction,
+    });
+  }
+
+  const wallet = getMockWalletByUserId(req.user.sub);
+  if (!wallet) return res.status(409).json({ message: 'Your wallet record is unavailable. Contact support.' });
+  if (Number(wallet.balance_kes) < amount) {
+    return res.status(400).json({ message: 'Insufficient available balance for this withdrawal.' });
+  }
+  wallet.balance_kes = Number(wallet.balance_kes) - amount;
+  wallet.pending_kes = Number(wallet.pending_kes) + amount;
+  const transaction = {
+    id: `withdrawal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    user_id: req.user.sub,
+    transaction_type: 'withdrawal',
+    amount_kes: amount,
+    status: 'pending_review',
+    payment_method: paymentMethod,
+    destination,
+    created_at: new Date().toISOString(),
+  };
+  mockWalletTransactions.unshift(transaction);
+  return res.status(201).json({
+    message: 'Withdrawal request sent to admin. The requested amount is reserved until the request is approved or rejected.',
+    transaction,
   });
 });
 
@@ -765,10 +1065,12 @@ app.get('/api/user/referrals', requireAuth, async (req, res) => {
 
 app.get('/api/admin/overview', requireAuth, requireAdmin, async (req, res) => {
   if (databaseOnline) {
-    const [users, posters, payouts, submissions, taskPosts, campaigns] = await Promise.all([
+    const [users, posters, payouts, deposits, withdrawals, submissions, taskPosts, campaigns] = await Promise.all([
       pool.query('SELECT COUNT(*)::int AS count FROM users'),
       pool.query("SELECT COUNT(*)::int AS count FROM users WHERE role = 'poster'"),
       pool.query("SELECT COUNT(*)::int AS count FROM payouts WHERE status IN ('pending', 'pending_approval')"),
+      pool.query("SELECT COUNT(*)::int AS count FROM wallet_transactions WHERE transaction_type = 'deposit' AND status = 'pending_review'"),
+      pool.query("SELECT COUNT(*)::int AS count FROM wallet_transactions WHERE transaction_type = 'withdrawal' AND status = 'pending_review'"),
       pool.query("SELECT COUNT(*)::int AS count FROM task_submissions WHERE status = 'pending_review'"),
       pool.query("SELECT COUNT(*)::int AS count FROM task_posts WHERE status = 'pending_review'"),
       pool.query('SELECT COUNT(*)::int AS count FROM campaigns WHERE active = TRUE'),
@@ -777,6 +1079,8 @@ app.get('/api/admin/overview', requireAuth, requireAdmin, async (req, res) => {
       usersTotal: users.rows[0].count,
       postersTotal: posters.rows[0].count,
       payoutsPending: payouts.rows[0].count,
+      depositsPending: deposits.rows[0].count,
+      withdrawalsPending: withdrawals.rows[0].count,
       submissionsPending: submissions.rows[0].count,
       taskPostsPending: taskPosts.rows[0].count,
       campaignsActive: campaigns.rows[0].count,
@@ -787,6 +1091,8 @@ app.get('/api/admin/overview', requireAuth, requireAdmin, async (req, res) => {
     usersTotal: mockUsers.length,
     postersTotal: mockUsers.filter((user) => user.role === 'poster').length,
     payoutsPending: mockPayouts.filter((item) => ['pending', 'pending_approval'].includes(item.status)).length,
+    depositsPending: mockWalletTransactions.filter((item) => item.transaction_type === 'deposit' && item.status === 'pending_review').length,
+    withdrawalsPending: mockWalletTransactions.filter((item) => item.transaction_type === 'withdrawal' && item.status === 'pending_review').length,
     submissionsPending: mockSubmissions.filter((item) => item.status === 'pending_review').length,
     taskPostsPending: mockTaskPosts.filter((item) => item.status === 'pending_review').length,
     campaignsActive: 0,
@@ -938,49 +1244,178 @@ app.patch('/api/admin/tasks/:id/status', requireAuth, requireAdmin, async (req, 
     return res.status(400).json({ message: 'Status must be approved or rejected.' });
   }
 
-  let submission;
   if (databaseOnline) {
     const result = await pool.query(
       `UPDATE task_submissions SET status = $2, reviewed_at = NOW()
        WHERE id = $1 AND status = 'pending_review' RETURNING *`,
       [req.params.id, status]
     );
-    [submission] = result.rows;
-  } else {
-    submission = mockSubmissions.find((item) => item.id === req.params.id && item.status === 'pending_review');
-    if (submission) {
-      submission.status = status;
-      submission.reviewed_at = new Date().toISOString();
-    }
+    if (!result.rows[0]) return res.status(404).json({ message: 'Pending submission not found.' });
+    return res.json({
+      message: 'Submission review status updated. This task review does not change the wallet balance.',
+      submission: result.rows[0],
+    });
   }
 
+  const submission = mockSubmissions.find((item) => item.id === req.params.id && item.status === 'pending_review');
   if (!submission) {
     return res.status(404).json({ message: 'Submission not found.' });
   }
-
-  return res.json({ message: 'Submission status updated.', submission });
+  submission.status = status;
+  submission.reviewed_at = new Date().toISOString();
+  return res.json({
+    message: 'Submission review status updated. This task review does not change the wallet balance.',
+    submission,
+  });
 });
 
-app.post('/api/payouts/request', requireAuth, async (req, res) => {
-  const { method, destination, amount } = req.body || {};
-  const wallet = await loadWallet(req.user.sub);
+app.post('/api/payouts/request', requireAuth, (req, res) => {
+  return res.status(410).json({
+    message: 'This payout endpoint is retired. Submit withdrawals through POST /api/wallet/withdrawals so funds are reserved and audited.',
+  });
+});
 
-  if (!wallet || Number(wallet.balance_kes) < Number(amount || 0)) {
-    return res.status(400).json({ message: 'Insufficient available balance for this payout.' });
+app.get('/api/admin/wallet-transactions', requireAuth, requireAdmin, async (req, res) => {
+  if (databaseOnline) {
+    const result = await pool.query(
+      `SELECT wallet_transactions.id, wallet_transactions.user_id,
+              users.full_name AS user_name, users.email AS user_email, users.role AS user_role,
+              wallet_transactions.transaction_type, wallet_transactions.amount_kes,
+              wallet_transactions.status, wallet_transactions.payment_method,
+              wallet_transactions.transaction_reference, wallet_transactions.destination,
+              wallet_transactions.description, wallet_transactions.created_at,
+              wallet_transactions.reviewed_at
+       FROM wallet_transactions
+       JOIN users ON users.id = wallet_transactions.user_id
+       WHERE wallet_transactions.status = 'pending_review'
+          OR wallet_transactions.id IN (
+            SELECT id FROM wallet_transactions
+            WHERE status != 'pending_review'
+            ORDER BY created_at DESC
+            LIMIT 200
+          )
+       ORDER BY (wallet_transactions.status = 'pending_review') DESC, wallet_transactions.created_at DESC
+      `
+    );
+    return res.json({ transactions: result.rows });
+  }
+  return res.json({
+    transactions: mockWalletTransactions.map((transaction) => ({
+      ...transaction,
+      user_name: mockUsers.find((user) => String(user.id) === String(transaction.user_id))?.full_name || 'Account unavailable',
+      user_email: mockUsers.find((user) => String(user.id) === String(transaction.user_id))?.email || '',
+      user_role: mockUsers.find((user) => String(user.id) === String(transaction.user_id))?.role || 'user',
+    })),
+  });
+});
+
+app.patch('/api/admin/wallet-transactions/:id/status', requireAuth, requireAdmin, async (req, res) => {
+  const { status } = req.body || {};
+  if (!['approved', 'rejected'].includes(status)) {
+    return res.status(400).json({ message: 'Transaction decision must be approved or rejected.' });
   }
 
-  const payout = {
-    id: `payout-${Date.now()}`,
-    user_id: Number(req.user.sub),
-    method,
-    destination,
-    amount_kes: Number(amount),
-    status: 'pending_approval',
-    created_at: new Date().toISOString(),
-  };
+  if (databaseOnline) {
+    const connection = await pool.connect();
+    let transaction;
+    try {
+      await connection.query('BEGIN');
+      const result = await connection.query(
+        `SELECT * FROM wallet_transactions
+         WHERE id = $1 AND transaction_type IN ('deposit', 'withdrawal') AND status = 'pending_review'
+         FOR UPDATE`,
+        [req.params.id]
+      );
+      [transaction] = result.rows;
+      if (!transaction) {
+        await connection.query('ROLLBACK');
+        return res.status(404).json({ message: 'Pending deposit or withdrawal not found.' });
+      }
 
-  mockPayouts.unshift(payout);
-  return res.status(201).json({ message: 'Payout request submitted to the admin queue.', payout });
+      const walletResult = await connection.query(
+        'SELECT id FROM wallets WHERE id = $1 FOR UPDATE',
+        [transaction.wallet_id]
+      );
+      if (!walletResult.rows[0]) throw new Error('Wallet record is missing for this transaction.');
+
+      if (transaction.transaction_type === 'deposit' && status === 'approved') {
+        await connection.query(
+          'UPDATE wallets SET balance_kes = balance_kes + $2, updated_at = NOW() WHERE id = $1',
+          [transaction.wallet_id, transaction.amount_kes]
+        );
+      } else if (transaction.transaction_type === 'withdrawal' && status === 'approved') {
+        await connection.query(
+          `UPDATE wallets
+           SET pending_kes = pending_kes - $2, withdrawn_kes = withdrawn_kes + $2, updated_at = NOW()
+           WHERE id = $1`,
+          [transaction.wallet_id, transaction.amount_kes]
+        );
+      } else if (transaction.transaction_type === 'withdrawal' && status === 'rejected') {
+        await connection.query(
+          `UPDATE wallets
+           SET balance_kes = balance_kes + $2, pending_kes = pending_kes - $2, updated_at = NOW()
+           WHERE id = $1`,
+          [transaction.wallet_id, transaction.amount_kes]
+        );
+      }
+
+      const updated = await connection.query(
+        `UPDATE wallet_transactions
+         SET status = $2, reviewer_id = $3, reviewed_at = NOW()
+         WHERE id = $1 AND status = 'pending_review'
+         RETURNING id, user_id, transaction_type, amount_kes, status, payment_method,
+                   transaction_reference, destination, description, created_at, reviewed_at`,
+        [req.params.id, status, req.user.sub]
+      );
+      [transaction] = updated.rows;
+      await connection.query('COMMIT');
+    } catch (error) {
+      await connection.query('ROLLBACK');
+      throw error;
+    } finally {
+      connection.release();
+    }
+    return res.json({
+      transaction,
+      message: transaction.transaction_type === 'deposit' && status === 'approved'
+        ? 'Deposit verified and credited to the poster wallet.'
+        : transaction.transaction_type === 'withdrawal' && status === 'approved'
+          ? 'Withdrawal approved. Complete the manual transfer to the recorded destination.'
+          : transaction.transaction_type === 'withdrawal'
+            ? 'Withdrawal rejected and reserved funds returned to the available wallet balance.'
+            : 'Deposit rejected. No wallet credit was made.',
+    });
+  }
+
+  const transaction = getMockWalletTransactionById(req.params.id);
+  if (!transaction || !['deposit', 'withdrawal'].includes(transaction.transaction_type) || transaction.status !== 'pending_review') {
+    return res.status(404).json({ message: 'Pending deposit or withdrawal not found.' });
+  }
+  const wallet = getMockWalletByUserId(transaction.user_id);
+  if (!wallet) return res.status(409).json({ message: 'Wallet record is missing for this transaction.' });
+  const amount = Number(transaction.amount_kes);
+  if (transaction.transaction_type === 'deposit' && status === 'approved') {
+    wallet.balance_kes = Number(wallet.balance_kes) + amount;
+  } else if (transaction.transaction_type === 'withdrawal' && status === 'approved') {
+    wallet.pending_kes = Number(wallet.pending_kes) - amount;
+    wallet.withdrawn_kes = Number(wallet.withdrawn_kes) + amount;
+  } else if (transaction.transaction_type === 'withdrawal' && status === 'rejected') {
+    wallet.balance_kes = Number(wallet.balance_kes) + amount;
+    wallet.pending_kes = Number(wallet.pending_kes) - amount;
+  }
+  transaction.status = status;
+  transaction.reviewed_at = new Date().toISOString();
+  transaction.reviewer_id = req.user.sub;
+  return res.json({
+    transaction,
+    message: transaction.transaction_type === 'deposit' && status === 'approved'
+      ? 'Deposit verified and credited to the poster wallet.'
+      : transaction.transaction_type === 'withdrawal' && status === 'approved'
+        ? 'Withdrawal approved. Complete the manual transfer to the recorded destination.'
+        : transaction.transaction_type === 'withdrawal'
+          ? 'Withdrawal rejected and reserved funds returned to the available wallet balance.'
+          : 'Deposit rejected. No wallet credit was made.',
+  });
 });
 
 app.get('/api/admin/payouts', requireAuth, requireAdmin, async (req, res) => {
@@ -997,30 +1432,9 @@ app.get('/api/admin/payouts', requireAuth, requireAdmin, async (req, res) => {
   return res.json({ payouts: mockPayouts });
 });
 
-app.patch('/api/admin/payouts/:id/status', requireAuth, requireAdmin, async (req, res) => {
-  const { status } = req.body || {};
-  if (!['approved', 'rejected'].includes(status)) {
-    return res.status(400).json({ message: 'Payout decision must be approved or rejected.' });
-  }
-  let payout;
-  if (databaseOnline) {
-    const result = await pool.query(
-      `UPDATE payouts SET status = $2
-       WHERE id = $1 AND status IN ('pending', 'pending_approval')
-       RETURNING id, user_id, method, destination, amount_kes, status, created_at`,
-      [req.params.id, status]
-    );
-    [payout] = result.rows;
-  } else {
-    payout = mockPayouts.find((item) => item.id === req.params.id && ['pending', 'pending_approval'].includes(item.status));
-    if (payout) payout.status = status;
-  }
-  if (!payout) return res.status(404).json({ message: 'Pending payout request not found.' });
-  return res.json({
-    payout,
-    message: status === 'approved'
-      ? 'Payout approved for manual processing. No money was transferred.'
-      : 'Payout request rejected.',
+app.patch('/api/admin/payouts/:id/status', requireAuth, requireAdmin, (req, res) => {
+  return res.status(410).json({
+    message: 'This legacy payout workflow is read-only. Review new withdrawal requests through /api/admin/wallet-transactions.',
   });
 });
 
