@@ -66,6 +66,21 @@ async function verifyDatabase() {
     if (missingTables.length) {
       throw new Error(`Database schema is incomplete (missing: ${missingTables.join(', ')}). Apply db/schema.sql before starting the API.`);
     }
+    const requiredColumns = {
+      task_posts: ['poster_user_id'],
+      task_submissions: ['task_post_id'],
+    };
+    const columnResult = await pool.query(
+      `SELECT table_name, column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = ANY($1::text[])`,
+      [Object.keys(requiredColumns)]
+    );
+    const foundColumns = new Set(columnResult.rows.map((row) => `${row.table_name}.${row.column_name}`));
+    const missingColumns = Object.entries(requiredColumns)
+      .flatMap(([table, columns]) => columns.filter((column) => !foundColumns.has(`${table}.${column}`)).map((column) => `${table}.${column}`));
+    if (missingColumns.length) {
+      throw new Error(`Database schema is incomplete (missing columns: ${missingColumns.join(', ')}). Apply the latest db/schema.sql before starting the API.`);
+    }
 
     databaseOnline = true;
     console.log('PostgreSQL connected');
@@ -106,19 +121,36 @@ function getAuthToken(req) {
   return header.slice(7);
 }
 
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const token = getAuthToken(req);
   if (!token) {
     return res.status(401).json({ message: 'Authentication required.' });
   }
 
+  let payload;
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
-    req.user = payload;
-    next();
+    payload = jwt.verify(token, JWT_SECRET);
   } catch {
     return res.status(401).json({ message: 'Invalid or expired token.' });
   }
+
+  if (databaseOnline) {
+    const result = await pool.query('SELECT status FROM users WHERE id = $1', [payload.sub]);
+    if (!result.rows[0] || result.rows[0].status !== 'active') {
+      return res.status(403).json({ message: 'This account is inactive. Contact support for assistance.' });
+    }
+  }
+  req.user = payload;
+  next();
+}
+
+function requireRole(role) {
+  return (req, res, next) => {
+    if (req.user?.role !== role) {
+      return res.status(403).json({ message: `${role === 'poster' ? 'Poster' : 'User'} account required.` });
+    }
+    next();
+  };
 }
 
 function requireAdmin(req, res, next) {
@@ -139,8 +171,6 @@ const allowedTaskCategories = new Set([
 ]);
 
 function validateTaskPost(input = {}) {
-  const posterName = String(input.posterName || '').trim();
-  const posterEmail = String(input.posterEmail || '').trim().toLowerCase();
   const title = String(input.title || '').trim();
   const category = String(input.category || '').trim();
   const description = String(input.description || '').trim();
@@ -150,14 +180,11 @@ function validateTaskPost(input = {}) {
   const payoutKes = Number(input.payoutKes);
   const dueDate = String(input.dueDate || '').trim();
 
-  if (!posterName || !posterEmail || !title || !category || !description || !proofRequirements || !dueDate) {
+  if (!title || !category || !description || !proofRequirements || !dueDate) {
     return { error: 'Complete all required fields before submitting.' };
   }
-  if (posterName.length > 100 || title.length > 120 || description.length > 2000 || proofRequirements.length > 1500) {
+  if (title.length > 120 || description.length > 2000 || proofRequirements.length > 1500) {
     return { error: 'Some fields exceed their allowed length.' };
-  }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(posterEmail)) {
-    return { error: 'Enter a valid contact email.' };
   }
   if (!allowedTaskCategories.has(category)) {
     return { error: 'Choose a valid task category.' };
@@ -190,8 +217,6 @@ function validateTaskPost(input = {}) {
 
   return {
     value: {
-      poster_name: posterName,
-      poster_email: posterEmail,
       title,
       category,
       description,
@@ -274,7 +299,7 @@ function isValidEmailAddress(value) {
   ));
 }
 
-app.post('/api/auth/signup', async (req, res) => {
+async function registerUser(req, res, role = 'user') {
   const { fullName, phone, password, referralCode } = req.body || {};
   const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
 
@@ -302,9 +327,9 @@ app.post('/api/auth/signup', async (req, res) => {
     try {
       await connection.query('BEGIN');
       const userResult = await connection.query(
-        `INSERT INTO users (full_name, email, phone, password_hash, referral_code)
-         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-        [fullName.trim(), email.trim().toLowerCase(), phone.trim(), passwordHash, nextReferralCode]
+        `INSERT INTO users (full_name, email, phone, password_hash, referral_code, role)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+        [fullName.trim(), email.trim().toLowerCase(), phone.trim(), passwordHash, nextReferralCode, role]
       );
       [nextUser] = userResult.rows;
       const walletResult = await connection.query(
@@ -329,7 +354,7 @@ app.post('/api/auth/signup', async (req, res) => {
       email: email.trim().toLowerCase(),
       phone: phone.trim(),
       password_hash: passwordHash,
-      role: 'user',
+      role,
       referral_code: nextReferralCode,
       status: 'active',
       is_verified: false,
@@ -347,7 +372,10 @@ app.post('/api/auth/signup', async (req, res) => {
     user: sanitizeUser(nextUser),
     wallet,
   });
-});
+}
+
+app.post('/api/auth/signup', (req, res) => registerUser(req, res));
+app.post('/api/auth/poster-signup', (req, res) => registerUser(req, res, 'poster'));
 
 app.post('/api/auth/login', async (req, res) => {
   const { identifier, password } = req.body || {};
@@ -359,6 +387,9 @@ app.post('/api/auth/login', async (req, res) => {
   const user = await findUserByIdentifier(identifier);
   if (!user) {
     return res.status(401).json({ message: 'Invalid credentials.' });
+  }
+  if (user.status !== 'active') {
+    return res.status(403).json({ message: 'This account is inactive. Contact support for assistance.' });
   }
 
   const valid = await bcrypt.compare(password, user.password_hash || user.passwordHash);
@@ -377,6 +408,9 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 app.post('/api/admin/access', requireAuth, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ message: 'An admin account is required.' });
+  }
   if (!ADMIN_ACCESS_PASSWORD) {
     return res.status(503).json({ message: 'Admin password is not configured on the server.' });
   }
@@ -430,21 +464,23 @@ app.get('/api/tasks', async (req, res) => {
   res.json({ tasks: publishedPosts });
 });
 
-app.post('/api/task-posts', async (req, res) => {
+app.post('/api/task-posts', requireAuth, requireRole('poster'), async (req, res) => {
   const validation = validateTaskPost(req.body);
   if (validation.error) return res.status(400).json({ message: validation.error });
 
   const values = validation.value;
+  const user = await findUserById(req.user.sub);
+  if (!user) return res.status(404).json({ message: 'Poster account not found.' });
   let taskPost;
 
   if (databaseOnline) {
     const result = await pool.query(
       `INSERT INTO task_posts
-        (poster_name, poster_email, title, category, description, task_url, proof_requirements,
+        (poster_user_id, poster_name, poster_email, title, category, description, task_url, proof_requirements,
          participant_limit, payout_kes, total_budget_kes, due_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING *`,
-      [values.poster_name, values.poster_email, values.title, values.category, values.description,
+      [user.id, user.full_name, user.email, values.title, values.category, values.description,
         values.task_url, values.proof_requirements, values.participant_limit, values.payout_kes,
         values.total_budget_kes, values.due_date]
     );
@@ -452,6 +488,9 @@ app.post('/api/task-posts', async (req, res) => {
   } else {
     taskPost = {
       id: `post-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      poster_user_id: user.id,
+      poster_name: user.full_name,
+      poster_email: user.email,
       ...values,
       status: 'pending_review',
       created_at: new Date().toISOString(),
@@ -463,6 +502,68 @@ app.post('/api/task-posts', async (req, res) => {
   return res.status(201).json({
     message: 'Your job is in the admin review queue. It will appear in Tasks after approval.',
     taskPost,
+  });
+});
+
+app.get('/api/poster/dashboard', requireAuth, requireRole('poster'), async (req, res) => {
+  if (databaseOnline) {
+    const [user, posts] = await Promise.all([
+      findUserById(req.user.sub),
+      pool.query(
+        `SELECT task_posts.*,
+                COALESCE(submission_counts.submissions_count, 0)::int AS submissions_count,
+                COALESCE(submission_counts.pending_count, 0)::int AS pending_count,
+                COALESCE(submission_counts.approved_count, 0)::int AS approved_count,
+                COALESCE(submission_counts.rejected_count, 0)::int AS rejected_count
+         FROM task_posts
+         LEFT JOIN (
+           SELECT task_posts.id,
+                  COUNT(task_submissions.id) AS submissions_count,
+                  COUNT(task_submissions.id) FILTER (WHERE task_submissions.status = 'pending_review') AS pending_count,
+                  COUNT(task_submissions.id) FILTER (WHERE task_submissions.status = 'approved') AS approved_count,
+                  COUNT(task_submissions.id) FILTER (WHERE task_submissions.status = 'rejected') AS rejected_count
+           FROM task_posts
+           LEFT JOIN task_submissions ON task_submissions.task_post_id = task_posts.id
+           WHERE task_posts.poster_user_id = $1 OR (task_posts.poster_user_id IS NULL AND LOWER(task_posts.poster_email) = LOWER($2))
+           GROUP BY task_posts.id
+         ) AS submission_counts ON submission_counts.id = task_posts.id
+         WHERE task_posts.poster_user_id = $1
+            OR (task_posts.poster_user_id IS NULL AND LOWER(task_posts.poster_email) = LOWER($2))
+         ORDER BY task_posts.created_at DESC`,
+        [req.user.sub, user?.email || '']
+      ),
+    ]);
+    if (!user) return res.status(404).json({ message: 'Poster account not found.' });
+    return res.json({
+      account: sanitizeUser(user),
+      billing: { status: 'not_configured', message: 'Deposits and poster balances will be available after payment setup in Step 5.' },
+      posts: posts.rows,
+      totals: {
+        posts: posts.rows.length,
+        pending_review: posts.rows.filter((post) => post.status === 'pending_review').length,
+        approved: posts.rows.filter((post) => post.status === 'approved').length,
+        rejected: posts.rows.filter((post) => post.status === 'rejected').length,
+        estimated_requested_budget_kes: posts.rows.reduce((total, post) => total + Number(post.total_budget_kes || 0), 0),
+      },
+    });
+  }
+
+  const user = await findUserById(req.user.sub);
+  if (!user) return res.status(404).json({ message: 'Poster account not found.' });
+  const posts = mockTaskPosts
+    .filter((post) => String(post.poster_user_id) === String(user.id))
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  return res.json({
+    account: sanitizeUser(user),
+    billing: { status: 'not_configured', message: 'Deposits and poster balances will be available after payment setup in Step 5.' },
+    posts,
+    totals: {
+      posts: posts.length,
+      pending_review: posts.filter((post) => post.status === 'pending_review').length,
+      approved: posts.filter((post) => post.status === 'approved').length,
+      rejected: posts.filter((post) => post.status === 'rejected').length,
+      estimated_requested_budget_kes: posts.reduce((total, post) => total + Number(post.total_budget_kes || 0), 0),
+    },
   });
 });
 
@@ -506,13 +607,26 @@ app.patch('/api/admin/task-posts/:id/status', requireAuth, requireAdmin, async (
 app.post('/api/tasks/:id/submit', requireAuth, async (req, res) => {
   const { id } = req.params;
   const { notes = '', proofType = 'camera_capture', imageUrl = '' } = req.body || {};
+  if (typeof notes !== 'string' || notes.length > 2000) {
+    return res.status(400).json({ message: 'Proof notes must be 2,000 characters or fewer.' });
+  }
+  if (typeof imageUrl !== 'string' || imageUrl.length > 4_200_000) {
+    return res.status(400).json({ message: 'Proof image must be 3 MB or smaller.' });
+  }
+  if (imageUrl && !/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(imageUrl)) {
+    return res.status(400).json({ message: 'Proof image must be a valid JPEG, PNG, or WebP image.' });
+  }
 
   let submission;
   if (databaseOnline) {
     const result = await pool.query(
-      `INSERT INTO task_submissions (user_id, task_id, proof_type, notes, image_url, status)
-       SELECT $1, tasks.id, $3, $4, $5, 'pending_review'
+      `INSERT INTO task_submissions (user_id, task_id, task_post_id, proof_type, notes, image_url, status)
+       SELECT $1, tasks.id, NULL, $3, $4, $5, 'pending_review'
        FROM tasks WHERE tasks.id = $2 AND tasks.active = TRUE
+       UNION ALL
+       SELECT $1, NULL, task_posts.id, $3, $4, $5, 'pending_review'
+       FROM task_posts
+       WHERE task_posts.id = $2 AND task_posts.status = 'approved' AND task_posts.due_date >= CURRENT_DATE
        RETURNING *`,
       [req.user.sub, id, proofType, notes, imageUrl]
     );
@@ -551,11 +665,12 @@ app.get('/api/user/dashboard', requireAuth, async (req, res) => {
       pool.query(
         `SELECT activity_type, description, status, created_at, amount_kes
          FROM (
-           SELECT 'task'::text AS activity_type, tasks.title AS description,
-                  task_submissions.status, task_submissions.created_at,
-                  NULL::numeric AS amount_kes
+           SELECT 'task'::text AS activity_type, COALESCE(tasks.title, task_posts.title) AS description,
+                 task_submissions.status, task_submissions.created_at,
+                 NULL::numeric AS amount_kes
            FROM task_submissions
-           JOIN tasks ON tasks.id = task_submissions.task_id
+           LEFT JOIN tasks ON tasks.id = task_submissions.task_id
+           LEFT JOIN task_posts ON task_posts.id = task_submissions.task_post_id
            WHERE task_submissions.user_id = $1
            UNION ALL
            SELECT 'payout'::text AS activity_type, payouts.method AS description,
@@ -650,8 +765,9 @@ app.get('/api/user/referrals', requireAuth, async (req, res) => {
 
 app.get('/api/admin/overview', requireAuth, requireAdmin, async (req, res) => {
   if (databaseOnline) {
-    const [users, payouts, submissions, taskPosts, campaigns] = await Promise.all([
+    const [users, posters, payouts, submissions, taskPosts, campaigns] = await Promise.all([
       pool.query('SELECT COUNT(*)::int AS count FROM users'),
+      pool.query("SELECT COUNT(*)::int AS count FROM users WHERE role = 'poster'"),
       pool.query("SELECT COUNT(*)::int AS count FROM payouts WHERE status IN ('pending', 'pending_approval')"),
       pool.query("SELECT COUNT(*)::int AS count FROM task_submissions WHERE status = 'pending_review'"),
       pool.query("SELECT COUNT(*)::int AS count FROM task_posts WHERE status = 'pending_review'"),
@@ -659,6 +775,7 @@ app.get('/api/admin/overview', requireAuth, requireAdmin, async (req, res) => {
     ]);
     return res.json({
       usersTotal: users.rows[0].count,
+      postersTotal: posters.rows[0].count,
       payoutsPending: payouts.rows[0].count,
       submissionsPending: submissions.rows[0].count,
       taskPostsPending: taskPosts.rows[0].count,
@@ -668,6 +785,7 @@ app.get('/api/admin/overview', requireAuth, requireAdmin, async (req, res) => {
 
   return res.json({
     usersTotal: mockUsers.length,
+    postersTotal: mockUsers.filter((user) => user.role === 'poster').length,
     payoutsPending: mockPayouts.filter((item) => ['pending', 'pending_approval'].includes(item.status)).length,
     submissionsPending: mockSubmissions.filter((item) => item.status === 'pending_review').length,
     taskPostsPending: mockTaskPosts.filter((item) => item.status === 'pending_review').length,
@@ -675,14 +793,138 @@ app.get('/api/admin/overview', requireAuth, requireAdmin, async (req, res) => {
   });
 });
 
+app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
+  if (databaseOnline) {
+    const result = await pool.query(
+      `SELECT users.id, users.full_name, users.email, users.phone, users.role,
+              users.status, users.is_verified, users.created_at,
+              wallets.balance_kes, wallets.pending_kes, wallets.withdrawn_kes,
+              COALESCE(post_counts.posts_count, 0)::int AS posts_count,
+              COALESCE(submission_counts.submissions_count, 0)::int AS submissions_count
+       FROM users
+       LEFT JOIN wallets ON wallets.user_id = users.id
+       LEFT JOIN (
+         SELECT users.id AS user_id, COUNT(task_posts.id) AS posts_count
+         FROM users
+         LEFT JOIN task_posts
+           ON task_posts.poster_user_id = users.id
+           OR (task_posts.poster_user_id IS NULL AND LOWER(task_posts.poster_email) = LOWER(users.email))
+         GROUP BY users.id
+       ) AS post_counts ON post_counts.user_id = users.id
+       LEFT JOIN (
+         SELECT user_id, COUNT(*) AS submissions_count
+         FROM task_submissions GROUP BY user_id
+       ) AS submission_counts ON submission_counts.user_id = users.id
+       ORDER BY users.created_at DESC LIMIT 500`
+    );
+    return res.json({ users: result.rows });
+  }
+  return res.json({
+    users: mockUsers.map((user) => ({
+      id: user.id,
+      full_name: user.full_name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      status: user.status,
+      is_verified: user.is_verified,
+      created_at: user.created_at,
+      ...(mockWallets.find((wallet) => String(wallet.user_id) === String(user.id)) || {
+        balance_kes: null,
+        pending_kes: null,
+        withdrawn_kes: null,
+      }),
+      posts_count: mockTaskPosts.filter((post) => String(post.poster_user_id) === String(user.id)).length,
+      submissions_count: mockSubmissions.filter((submission) => String(submission.user_id) === String(user.id)).length,
+    })),
+  });
+});
+
+app.patch('/api/admin/users/:id/status', requireAuth, requireAdmin, async (req, res) => {
+  const { status } = req.body || {};
+  if (!['active', 'suspended'].includes(status)) {
+    return res.status(400).json({ message: 'Account status must be active or suspended.' });
+  }
+  if (String(req.params.id) === String(req.user.sub)) {
+    return res.status(400).json({ message: 'You cannot change your own account status.' });
+  }
+
+  let user;
+  if (databaseOnline) {
+    const result = await pool.query(
+      `UPDATE users SET status = $2, updated_at = NOW()
+       WHERE id = $1 AND role IN ('user', 'poster')
+       RETURNING id, full_name, email, phone, role, status, is_verified, created_at`,
+      [req.params.id, status]
+    );
+    [user] = result.rows;
+  } else {
+    user = mockUsers.find((item) => String(item.id) === String(req.params.id) && ['user', 'poster'].includes(item.role));
+    if (user) {
+      user.status = status;
+      user.updated_at = new Date().toISOString();
+    }
+  }
+  if (!user) return res.status(404).json({ message: 'User or poster account not found.' });
+  return res.json({ user });
+});
+
+app.get('/api/admin/campaigns', requireAuth, requireAdmin, async (req, res) => {
+  if (databaseOnline) {
+    const result = await pool.query('SELECT * FROM campaigns ORDER BY created_at DESC');
+    return res.json({ campaigns: result.rows });
+  }
+  return res.json({ campaigns: [] });
+});
+
+app.get('/api/admin/catalog', requireAuth, requireAdmin, async (req, res) => {
+  if (databaseOnline) {
+    const result = await pool.query('SELECT * FROM tasks ORDER BY created_at DESC');
+    return res.json({ tasks: result.rows });
+  }
+  return res.json({ tasks: [] });
+});
+
+app.patch('/api/admin/catalog/:id/status', requireAuth, requireAdmin, async (req, res) => {
+  const { active } = req.body || {};
+  if (typeof active !== 'boolean') {
+    return res.status(400).json({ message: 'Task active status must be true or false.' });
+  }
+  if (!databaseOnline) return res.status(404).json({ message: 'Task not found in the development data store.' });
+  const result = await pool.query(
+    'UPDATE tasks SET active = $2 WHERE id = $1 RETURNING *',
+    [req.params.id, active]
+  );
+  if (!result.rows[0]) return res.status(404).json({ message: 'Task not found.' });
+  return res.json({ task: result.rows[0] });
+});
+
+app.patch('/api/admin/campaigns/:id/status', requireAuth, requireAdmin, async (req, res) => {
+  const { active } = req.body || {};
+  if (typeof active !== 'boolean') {
+    return res.status(400).json({ message: 'Campaign active status must be true or false.' });
+  }
+  if (!databaseOnline) return res.status(404).json({ message: 'Campaign not found in the development data store.' });
+  const result = await pool.query(
+    'UPDATE campaigns SET active = $2 WHERE id = $1 RETURNING *',
+    [req.params.id, active]
+  );
+  if (!result.rows[0]) return res.status(404).json({ message: 'Campaign not found.' });
+  return res.json({ campaign: result.rows[0] });
+});
+
 app.get('/api/admin/tasks', requireAuth, requireAdmin, async (req, res) => {
   if (databaseOnline) {
     const result = await pool.query(
-      `SELECT task_submissions.id, users.full_name AS user_name, tasks.title AS task_title,
-              tasks.payout_kes AS amount_kes, task_submissions.status, task_submissions.created_at
+      `SELECT task_submissions.id, users.full_name AS user_name, users.email AS user_email,
+              COALESCE(tasks.title, task_posts.title) AS task_title,
+              COALESCE(tasks.payout_kes, task_posts.payout_kes) AS amount_kes,
+              task_submissions.status, task_submissions.proof_type, task_submissions.notes, task_submissions.image_url,
+              task_submissions.created_at
        FROM task_submissions
        JOIN users ON users.id = task_submissions.user_id
-       JOIN tasks ON tasks.id = task_submissions.task_id
+       LEFT JOIN tasks ON tasks.id = task_submissions.task_id
+       LEFT JOIN task_posts ON task_posts.id = task_submissions.task_post_id
        ORDER BY task_submissions.created_at DESC LIMIT 100`
     );
     return res.json({ tasks: result.rows });
@@ -753,6 +995,33 @@ app.get('/api/admin/payouts', requireAuth, requireAdmin, async (req, res) => {
     return res.json({ payouts: result.rows });
   }
   return res.json({ payouts: mockPayouts });
+});
+
+app.patch('/api/admin/payouts/:id/status', requireAuth, requireAdmin, async (req, res) => {
+  const { status } = req.body || {};
+  if (!['approved', 'rejected'].includes(status)) {
+    return res.status(400).json({ message: 'Payout decision must be approved or rejected.' });
+  }
+  let payout;
+  if (databaseOnline) {
+    const result = await pool.query(
+      `UPDATE payouts SET status = $2
+       WHERE id = $1 AND status IN ('pending', 'pending_approval')
+       RETURNING id, user_id, method, destination, amount_kes, status, created_at`,
+      [req.params.id, status]
+    );
+    [payout] = result.rows;
+  } else {
+    payout = mockPayouts.find((item) => item.id === req.params.id && ['pending', 'pending_approval'].includes(item.status));
+    if (payout) payout.status = status;
+  }
+  if (!payout) return res.status(404).json({ message: 'Pending payout request not found.' });
+  return res.json({
+    payout,
+    message: status === 'approved'
+      ? 'Payout approved for manual processing. No money was transferred.'
+      : 'Payout request rejected.',
+  });
 });
 
 async function startServer() {
