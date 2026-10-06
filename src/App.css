@@ -2674,21 +2674,21 @@ button:focus-visible {
 }
 
 .admin-section-tabs {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
   gap: 8px;
   margin: 18px 0;
-  padding-bottom: 8px;
-  overflow-x: auto;
-  scrollbar-width: thin;
 }
 
 .admin-section-tab {
-  flex: 0 0 auto;
+  width: 100%;
+  min-height: 42px;
   padding: 9px 13px;
   border: 1px solid rgba(225, 239, 228, 0.1);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.025);
   color: #b9c7bd;
+  text-align: center;
   cursor: pointer;
 }
 
@@ -2697,6 +2697,35 @@ button:focus-visible {
   border-color: rgba(197, 237, 111, 0.35);
   background: rgba(197, 237, 111, 0.1);
   color: #c5ed6f;
+}
+
+.admin-stat-link {
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s ease, transform 0.18s ease, background 0.18s ease;
+}
+
+.admin-stat-link:hover,
+.admin-stat-link:focus-visible {
+  border-color: rgba(197, 237, 111, 0.55);
+  background: #17251c;
+  transform: translateY(-2px);
+}
+
+.admin-stat-link:focus-visible,
+.admin-section-tab:focus-visible {
+  outline: 2px solid #c5ed6f;
+  outline-offset: 2px;
+}
+
+.admin-stat-link small {
+  display: block;
+  margin-top: 6px;
+  color: #b9c7bd;
+  font-size: 0.76rem;
 }
 
 .admin-overview-note,

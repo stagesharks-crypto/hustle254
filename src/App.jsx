@@ -258,7 +258,7 @@ function App() {
     setNavigationRoot('Home')
   }
 
-  const effectivePage = session && ['Login', 'Sign up'].includes(currentPage) ? 'Dashboard' : currentPage
+  const effectivePage = session && ['Login', 'Poster login', 'Sign up', 'Poster signup'].includes(currentPage) ? 'Dashboard' : currentPage
 
   const renderPage = () => {
     if (!session && memberPages.has(effectivePage) && effectivePage !== 'Admin') {
@@ -303,9 +303,10 @@ function App() {
       case 'Legal':
         return <LegalPage />
       case 'Login':
+      case 'Poster login':
       case 'Sign up':
       case 'Poster signup':
-        return <AuthPage type={effectivePage === 'Login' ? 'login' : effectivePage === 'Poster signup' ? 'posterSignup' : 'signup'} onChangeType={(page) => setCurrentPage(page, { replace: true })} onAuthenticated={handleAuthenticated} />
+        return <AuthPage type={effectivePage === 'Poster login' ? 'posterLogin' : effectivePage === 'Login' ? 'login' : effectivePage === 'Poster signup' ? 'posterSignup' : 'signup'} onChangeType={(page) => setCurrentPage(page, { replace: true })} onAuthenticated={handleAuthenticated} />
       case 'Home':
       default:
         return <HomePage setCurrentPage={setCurrentPage} session={session} />
@@ -868,15 +869,21 @@ function PosterPage({ session, setCurrentPage }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [reloadAttempt, setReloadAttempt] = useState(0)
 
   useEffect(() => {
     let active = true
     apiRequest('/poster/dashboard', { token: session.token })
-      .then((result) => { if (active) setData(result) })
+      .then((result) => {
+        if (!result.account || !Array.isArray(result.posts) || !result.totals) {
+          throw new Error('The poster dashboard returned incomplete account data. Please try again.')
+        }
+        if (active) setData(result)
+      })
       .catch((requestError) => { if (active) setError(requestError.message) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [session.token])
+  }, [session.token, reloadAttempt])
 
   return (
     <div className="page-wrap">
@@ -888,7 +895,23 @@ function PosterPage({ session, setCurrentPage }) {
       />
 
       {loading && <p>Loading your poster account…</p>}
-      {error && <div className="form-error" role="alert">{error}</div>}
+      {error && (
+        <div className="form-error" role="alert">
+          {error}
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={loading}
+            onClick={() => {
+              setLoading(true)
+              setError('')
+              setReloadAttempt((attempt) => attempt + 1)
+            }}
+          >
+            Try again
+          </button>
+        </div>
+      )}
 
       <div className="stats-grid">
         {[
@@ -1508,19 +1531,26 @@ function AdminPage({ session, onAuthenticated, onVerifyAdminPassword, taskPosts,
 
       <div className="stats-grid">
         {[
-          ['Users', overview?.usersTotal],
-          ['Posters', overview?.postersTotal],
-          ['Deposits to verify', overview?.depositsPending],
-          ['Withdrawals to process', overview?.withdrawalsPending],
-          ['Legacy pending payouts', overview?.payoutsPending],
-          ['Submissions awaiting review', overview?.submissionsPending],
-          ['Task posts awaiting review', overview?.taskPostsPending],
-          ['Active campaigns', overview?.campaignsActive],
-        ].map(([label, value]) => (
-          <div key={label} className="stat-card panel">
+          ['Users', overview?.usersTotal, 'Users & posters'],
+          ['Posters', overview?.postersTotal, 'Users & posters'],
+          ['Deposits to verify', overview?.depositsPending, 'Wallet deposits'],
+          ['Withdrawals to process', overview?.withdrawalsPending, 'Withdrawals'],
+          ['Legacy pending payouts', overview?.payoutsPending, 'Legacy payouts'],
+          ['Submissions awaiting review', overview?.submissionsPending, 'Submissions'],
+          ['Task posts awaiting review', overview?.taskPostsPending, 'Task posts'],
+          ['Active campaigns', overview?.campaignsActive, 'Campaigns'],
+        ].map(([label, value, targetSection]) => (
+          <button
+            type="button"
+            key={label}
+            className="stat-card panel admin-stat-link"
+            onClick={() => setSection(targetSection)}
+            aria-label={`Open ${targetSection} management`}
+          >
             <label>{label}</label>
             <strong>{value ?? '—'}</strong>
-          </div>
+            <small>Open {targetSection}</small>
+          </button>
         ))}
       </div>
 
@@ -1782,7 +1812,8 @@ function TrustPage() {
 function AuthPage({ type, onChangeType, onAuthenticated }) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
-  const isLogin = type === 'login'
+  const isPosterLogin = type === 'posterLogin'
+  const isLogin = type === 'login' || isPosterLogin
   const isPosterSignup = type === 'posterSignup'
 
   async function handleAuth(event) {
@@ -1797,7 +1828,11 @@ function AuthPage({ type, onChangeType, onAuthenticated }) {
       return
     }
     const payload = isLogin
-      ? { identifier: formData.get('identifier'), password: formData.get('password') }
+      ? {
+          identifier: formData.get('identifier'),
+          password: formData.get('password'),
+          ...(isPosterLogin ? { expectedRole: 'poster' } : {}),
+        }
       : {
           fullName: formData.get('fullName'),
           email,
@@ -1825,14 +1860,15 @@ function AuthPage({ type, onChangeType, onAuthenticated }) {
   return (
     <div className="page-wrap auth-wrap">
       <div className="panel auth-panel">
-        <div className="eyebrow">{isLogin ? 'Welcome back' : isPosterSignup ? 'Poster registration' : 'Create account'}</div>
-        <h2>{isLogin ? 'Login to your account' : isPosterSignup ? 'Register your poster account' : 'Join Hustle254'}</h2>
+        <div className="eyebrow">{isPosterLogin ? 'Poster account' : isLogin ? 'Welcome back' : isPosterSignup ? 'Poster registration' : 'Create account'}</div>
+        <h2>{isPosterLogin ? 'Login to your poster account' : isLogin ? 'Login to your account' : isPosterSignup ? 'Register your poster account' : 'Join Hustle254'}</h2>
         <div className={isPosterSignup ? 'auth-tabs poster-auth-tabs' : 'auth-tabs'} role="tablist" aria-label="Account access">
           <button type="button" role="tab" aria-selected={isLogin} className={isLogin ? 'auth-tab active' : 'auth-tab'} onClick={() => onChangeType('Login')}>Log in</button>
           <button type="button" role="tab" aria-selected={type === 'signup'} className={type === 'signup' ? 'auth-tab active' : 'auth-tab'} onClick={() => onChangeType('Sign up')}>Create account</button>
+          <button type="button" role="tab" aria-selected={isPosterLogin} className={isPosterLogin ? 'auth-tab active' : 'auth-tab'} onClick={() => onChangeType('Poster login')}>Login as poster</button>
           <button type="button" role="tab" aria-selected={isPosterSignup} className={isPosterSignup ? 'auth-tab active' : 'auth-tab'} onClick={() => onChangeType('Poster signup')}>Register as poster</button>
         </div>
-        {isPosterSignup && <p className="auth-intro">Poster accounts use separate login details and can publish tasks, submit deposits for manual review, and track withdrawals.</p>}
+        {(isPosterLogin || isPosterSignup) && <p className="auth-intro">Poster accounts use separate login details and can publish tasks, submit deposits for manual review, and track withdrawals.</p>}
 
         {error && <div className="form-error" role="alert">{error}</div>}
         <form className="form-grid" onSubmit={handleAuth}>
@@ -1843,13 +1879,13 @@ function AuthPage({ type, onChangeType, onAuthenticated }) {
             </label>
           )}
           <label>
-            {isLogin ? 'Email or phone' : 'Email'}
+            {isLogin ? isPosterLogin ? 'Poster email or phone' : 'Email or phone' : 'Email'}
             <input
               name={isLogin ? 'identifier' : 'email'}
               type={isLogin ? 'text' : 'email'}
               autoComplete={isLogin ? 'username' : 'email'}
               maxLength={isLogin ? undefined : 254}
-              placeholder={isLogin ? 'Enter email or phone' : 'you@example.com'}
+              placeholder={isLogin ? isPosterLogin ? 'Enter poster email or phone' : 'Enter email or phone' : 'you@example.com'}
               onInvalid={isLogin ? undefined : (event) => event.currentTarget.setCustomValidity('Invalid email address. Check the spelling and enter a correctly formatted address.')}
               onInput={isLogin ? undefined : (event) => event.currentTarget.setCustomValidity('')}
               required
@@ -1873,7 +1909,7 @@ function AuthPage({ type, onChangeType, onAuthenticated }) {
             </label>
           )}
           <button type="submit" className="btn btn-primary btn-block" disabled={submitting}>
-            {submitting ? 'Please wait…' : isLogin ? 'Login' : isPosterSignup ? 'Create poster account' : 'Create account'}
+            {submitting ? 'Please wait…' : isPosterLogin ? 'Login as poster' : isLogin ? 'Login' : isPosterSignup ? 'Create poster account' : 'Create account'}
           </button>
         </form>
       </div>
