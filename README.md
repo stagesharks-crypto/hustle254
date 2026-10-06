@@ -37,6 +37,10 @@ Free-tier caveat: Supabase currently includes 500 MB database storage, but pause
 
 Task posts are stored in PostgreSQL with `pending_review`, `approved`, or `rejected` status. Submitting a post does not collect or escrow funds; verify reward funding before approving it. Approval publishes it to the Tasks catalog.
 
+Poster accounts are separate registrations (`/api/auth/poster-signup`) and only signed-in poster accounts can submit task posts. Their dashboard lists posts associated with their account and counts linked participant submissions. Existing task posts with no `poster_user_id` are associated by matching the stored poster email; new posts save the authenticated poster's user ID. Apply the current `db/schema.sql` before deploying these API changes because it adds `task_posts.poster_user_id` and `task_submissions.task_post_id`.
+
+The admin dashboard uses an admin account plus the separately configured `ADMIN_ACCESS_PASSWORD`. It can list users and posters with stored wallet amounts, suspend/reactivate non-admin accounts, review posts and participant submissions (including submitted proof images), review payout requests, and activate/deactivate catalog tasks and campaigns. Payout approval is only a manual review decision; it does not transfer funds or adjust wallet balances. Poster reward budgets are estimates until payment/escrow support is implemented.
+
 In local development, the API uses in-memory storage only when no usable PostgreSQL schema is configured. It starts without seeded users, balances, tasks, or activity; new local test data disappears when the server restarts. The health endpoint reports `"database":"fallback"` in this mode.
 
 Submitting a post does not collect or escrow funds. Verify reward funding before approving a post; approval publishes it to the Tasks catalog.
