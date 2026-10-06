@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import './App.css'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
@@ -106,7 +106,9 @@ const trustChecks = [
 ]
 
 function App() {
-  const [currentPage, setCurrentPage] = useState('Home')
+  const [currentPage, setCurrentPageState] = useState('Home')
+  const pageHistory = useRef(['Home'])
+  const [canGoBack, setCanGoBack] = useState(false)
   const [selectedTaskId, setSelectedTaskId] = useState('')
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [tasks, setTasks] = useState([])
@@ -121,6 +123,36 @@ function App() {
       return null
     }
   })
+
+  function setCurrentPage(page, { replace = false } = {}) {
+    const history = pageHistory.current
+    if (replace) {
+      history[history.length - 1] = page
+    } else if (history[history.length - 1] !== page) {
+      history.push(page)
+    }
+    setCanGoBack(history.length > 1)
+    setCurrentPageState(page)
+  }
+
+  function setNavigationRoot(page) {
+    pageHistory.current = [page]
+    setCanGoBack(false)
+    setCurrentPageState(page)
+    setIsMenuOpen(false)
+  }
+
+  function goBack() {
+    if (pageHistory.current.length <= 1) {
+      setNavigationRoot('Home')
+      return
+    }
+    pageHistory.current.pop()
+    const previousPage = pageHistory.current[pageHistory.current.length - 1] || 'Home'
+    setCanGoBack(pageHistory.current.length > 1)
+    setCurrentPageState(previousPage)
+    setIsMenuOpen(false)
+  }
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) || tasks[0] || null
 
@@ -170,7 +202,7 @@ function App() {
   function handleAuthenticated(nextSession) {
     localStorage.setItem('hustle254-session', JSON.stringify(nextSession))
     setSession(nextSession)
-    setCurrentPage(nextSession.user.role === 'admin' ? 'Admin' : 'Dashboard')
+    setNavigationRoot(nextSession.user.role === 'admin' ? 'Admin' : 'Dashboard')
   }
 
   async function handleAdminPassword(password) {
@@ -187,19 +219,21 @@ function App() {
   function handleSignOut() {
     localStorage.removeItem('hustle254-session')
     setSession(null)
-    setCurrentPage('Home')
+    setNavigationRoot('Home')
   }
 
+  const effectivePage = session && ['Login', 'Sign up'].includes(currentPage) ? 'Dashboard' : currentPage
+
   const renderPage = () => {
-    if (!session && memberPages.has(currentPage)) {
+    if (!session && memberPages.has(effectivePage)) {
       return <SignInRequiredPage setCurrentPage={setCurrentPage} />
     }
 
-    switch (currentPage) {
+    switch (effectivePage) {
       case 'How it works':
         return <HowItWorksPage />
       case 'Features':
-        return <FeaturesPage setCurrentPage={setCurrentPage} />
+        return <FeaturesPage setCurrentPage={setCurrentPage} session={session} />
       case 'Tasks':
         return <TasksPage tasks={tasks} selectedTask={selectedTask} setSelectedTask={setSelectedTaskId} loading={tasksLoading} error={tasksError} />
       case 'Post a task':
@@ -227,10 +261,10 @@ function App() {
         return <LegalPage />
       case 'Login':
       case 'Sign up':
-        return <AuthPage type={currentPage === 'Login' ? 'login' : 'signup'} onChangeType={setCurrentPage} onAuthenticated={handleAuthenticated} />
+        return <AuthPage type={effectivePage === 'Login' ? 'login' : 'signup'} onChangeType={(page) => setCurrentPage(page, { replace: true })} onAuthenticated={handleAuthenticated} />
       case 'Home':
       default:
-        return <HomePage setCurrentPage={setCurrentPage} />
+        return <HomePage setCurrentPage={setCurrentPage} session={session} />
     }
   }
 
@@ -273,9 +307,9 @@ function App() {
         </nav>
 
         <div className="side-menu-footer">
-          <p>Ready to start earning?</p>
-          <button type="button" className="btn btn-primary btn-block" onClick={() => { setCurrentPage('Sign up'); setIsMenuOpen(false) }}>
-            Create account
+          <p>{session.user.role === 'admin' ? 'Admin tools and account overview' : 'Your account is ready'}</p>
+          <button type="button" className="btn btn-primary btn-block" onClick={() => { setCurrentPage(session.user.role === 'admin' ? 'Admin' : 'Dashboard'); setIsMenuOpen(false) }}>
+            {session.user.role === 'admin' ? 'Open admin dashboard' : 'Open dashboard'}
           </button>
         </div>
       </aside>}
@@ -284,10 +318,15 @@ function App() {
 
       <div className="app-content">
         <header className={session ? 'topbar' : 'topbar guest-topbar'}>
+          {(effectivePage !== 'Home' || canGoBack) && (
+            <button type="button" className="topbar-back" onClick={goBack} aria-label="Go back to the previous page">
+              <span aria-hidden="true">←</span> {canGoBack ? 'Back' : 'Home'}
+            </button>
+          )}
           {session && <button type="button" className="menu-toggle" aria-label="Open navigation menu" aria-expanded={isMenuOpen} onClick={() => setIsMenuOpen(!isMenuOpen)}>
             <span /><span /><span />
           </button>}
-          <div className="topbar-context">{currentPage === 'Login' || currentPage === 'Sign up' ? 'Your account' : currentPage}</div>
+          <div className="topbar-context">{effectivePage === 'Login' || effectivePage === 'Sign up' ? 'Your account' : effectivePage}</div>
           <button type="button" className="topbar-account" onClick={session ? handleSignOut : () => setCurrentPage('Login')}>
             {session ? 'Log out' : <>Log in <span aria-hidden="true">/</span> Sign up</>}
           </button>
@@ -338,7 +377,9 @@ function SignInRequiredPage({ setCurrentPage }) {
   )
 }
 
-function HomePage({ setCurrentPage }) {
+function HomePage({ setCurrentPage, session }) {
+  const primaryDestination = session?.user?.role === 'admin' ? 'Admin' : 'Dashboard'
+
   return (
     <div className="home-page">
       <section className="welcome-hero">
@@ -347,7 +388,13 @@ function HomePage({ setCurrentPage }) {
           <h1>Your time has value. <em>Earn on your terms.</em></h1>
           <p>Find paid surveys, social campaigns and simple online tasks. Do the work, submit proof, and track every reward in one place.</p>
           <div className="welcome-actions">
-            <button type="button" className="btn welcome-primary" onClick={() => setCurrentPage('Sign up')}>Create your free account <span aria-hidden="true">→</span></button>
+            {session ? (
+              <button type="button" className="btn welcome-primary" onClick={() => setCurrentPage(primaryDestination)}>
+                {session.user.role === 'admin' ? 'Open admin dashboard' : 'Go to your dashboard'} <span aria-hidden="true">→</span>
+              </button>
+            ) : (
+              <button type="button" className="btn welcome-primary" onClick={() => setCurrentPage('Sign up')}>Create your free account <span aria-hidden="true">→</span></button>
+            )}
             <button type="button" className="welcome-secondary" onClick={() => setCurrentPage('Tasks')}>Explore available tasks</button>
           </div>
           <div className="welcome-note"><span aria-hidden="true">✓</span> Clear task rules. No fee to join.</div>
@@ -425,7 +472,7 @@ function HowItWorksPage() {
   )
 }
 
-function FeaturesPage({ setCurrentPage }) {
+function FeaturesPage({ setCurrentPage, session }) {
   return (
     <div className="page-wrap">
       <PageHeader
@@ -440,7 +487,7 @@ function FeaturesPage({ setCurrentPage }) {
             <span className="tag">{feature.tag}</span>
             <h3>{feature.title}</h3>
             <p>{feature.text}</p>
-            {feature.title === 'Admin control center' && (
+            {feature.title === 'Admin control center' && session?.user?.role === 'admin' && (
               <button type="button" className="btn btn-secondary feature-action" onClick={() => setCurrentPage('Admin')}>
                 Open admin dashboard
               </button>

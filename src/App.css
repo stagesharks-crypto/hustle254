@@ -104,13 +104,33 @@
   position: sticky;
   top: 0;
   z-index: 15;
-  display: grid;
-  grid-template-columns: 40px 1fr auto;
+  display: flex;
   align-items: center;
   gap: 14px;
   min-height: 58px;
   padding: 0 0 14px;
   background: linear-gradient(var(--bg) 80%, transparent);
+}
+
+.topbar-back {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #d5dfd8;
+  font-size: 0.82rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.topbar-back:hover {
+  border-color: rgba(197, 237, 111, 0.35);
+  color: #c5ed6f;
 }
 
 .menu-toggle {
@@ -135,6 +155,7 @@
 }
 
 .topbar-context {
+  flex: 1;
   color: #b4c0d0;
   font-size: 0.88rem;
   font-weight: 600;
