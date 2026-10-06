@@ -33,64 +33,13 @@ const pool = new Pool({
   connectionTimeoutMillis: 10000,
 });
 
-const mockUsers = [
-  {
-    id: 1,
-    full_name: 'Admin Hustle254',
-    email: 'admin@hustle254.co.ke',
-    phone: '+254700000001',
-    password_hash: '$2a$10$7H0Wtw6kvPP3Dd4YVt8qj.u0cX7BUy0YLuVvUQq2BVd/8ah7kS4y2',
-    role: 'admin',
-    referral_code: 'ADMIN254',
-    status: 'active',
-    is_verified: true,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: 2,
-    full_name: 'Jane Wanjiku',
-    email: 'jane@hustle254.co.ke',
-    phone: '+254712345678',
-    password_hash: '$2a$10$7H0Wtw6kvPP3Dd4YVt8qj.u0cX7BUy0YLuVvUQq2BVd/8ah7kS4y2',
-    role: 'user',
-    referral_code: 'JANE254',
-    status: 'active',
-    is_verified: true,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-];
-
-const mockWallets = [
-  { id: 1, user_id: 1, balance_kes: 0, pending_kes: 0, withdrawn_kes: 0 },
-  { id: 2, user_id: 2, balance_kes: 7840, pending_kes: 1430, withdrawn_kes: 500 },
-];
-
-const mockTasks = [
-  { id: 'task-1', title: 'Quick survey', category: 'Survey', payout_kes: 80, duration_minutes: 6, risk_level: 'low', description: 'Fast survey with clear verification steps.' },
-  { id: 'task-2', title: 'App install trial', category: 'Offer wall', payout_kes: 160, duration_minutes: 12, risk_level: 'medium', description: 'Install and verify an app in a live session.' },
-  { id: 'task-3', title: 'Social engagement task', category: 'Social', payout_kes: 110, duration_minutes: 8, risk_level: 'low', description: 'Follow, like, or share content using the required steps.' },
-  { id: 'task-4', title: 'Referral bonus', category: 'Referral', payout_kes: 250, duration_minutes: 3, risk_level: 'low', description: 'Reward for successful qualifying referral.' },
-  { id: 'task-5', title: 'Daily streak reward', category: 'Bonus', payout_kes: 45, duration_minutes: 1, risk_level: 'low', description: 'Daily streak loyalty bonus.' },
-  { id: 'task-6', title: 'Brand campaign', category: 'Campaign', payout_kes: 220, duration_minutes: 15, risk_level: 'medium', description: 'Complete a qualifying brand task and submit proof.' },
-];
-
+const mockUsers = [];
+const mockWallets = [];
 const mockTaskPosts = [];
 const adminAccessAttempts = new Map();
-
-const mockSubmissions = [
-  { id: 'sub-1', user_id: 2, task_id: 'task-1', status: 'approved', proof_type: 'camera_capture', notes: 'submitted and verified', created_at: new Date().toISOString() },
-  { id: 'sub-2', user_id: 2, task_id: 'task-2', status: 'pending_review', proof_type: 'camera_capture', notes: 'awaiting review', created_at: new Date().toISOString() },
-];
-
-const mockPayouts = [
-  { id: 'payout-1', user_id: 2, method: 'M-Pesa', destination: '+254712345678', amount_kes: 500, status: 'approved', created_at: new Date().toISOString() },
-];
-
-const mockReferrals = [
-  { id: 'ref-1', referrer_id: 2, referred_user_id: 1, commission_kes: 250, status: 'approved' },
-];
+const mockSubmissions = [];
+const mockPayouts = [];
+const mockReferrals = [];
 
 let databaseOnline = false;
 
@@ -101,7 +50,16 @@ async function verifyDatabase() {
     }
 
     await pool.query('SELECT 1');
-    const requiredTables = ['users', 'wallets', 'task_posts'];
+    const requiredTables = [
+      'users',
+      'wallets',
+      'tasks',
+      'task_posts',
+      'task_submissions',
+      'payouts',
+      'referrals',
+      'campaigns',
+    ];
     const result = await pool.query(
       `SELECT table_name FROM information_schema.tables
        WHERE table_schema = 'public' AND table_name = ANY($1::text[])`,
@@ -118,7 +76,7 @@ async function verifyDatabase() {
   } catch (error) {
     databaseOnline = false;
     if (isProduction) throw error;
-    console.warn('PostgreSQL unavailable. Falling back to mock data.');
+    console.warn(`PostgreSQL unavailable. Falling back to in-memory development storage: ${error.message}`);
   }
 }
 
@@ -297,18 +255,6 @@ async function loadWallet(userId) {
 
   return mockWallets.find((wallet) => wallet.user_id === Number(userId)) || null;
 }
-
-app.get('/', (req, res) => {
-  res.json({
-    service: 'Hustle254 API',
-    status: 'ok',
-    database: databaseOnline ? 'connected' : 'fallback',
-    endpoints: {
-      health: '/api/health',
-      tasks: '/api/tasks',
-    },
-  });
-});
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', database: databaseOnline ? 'connected' : 'fallback' });
@@ -535,16 +481,22 @@ app.post('/api/admin/access', requireAuth, (req, res) => {
 
 app.get('/api/tasks', async (req, res) => {
   if (databaseOnline) {
-    const result = await pool.query(
-      "SELECT * FROM task_posts WHERE status = 'approved' AND due_date >= CURRENT_DATE ORDER BY created_at DESC"
-    );
-    return res.json({ tasks: [...mockTasks, ...result.rows.map(asPublishedTask)] });
+    const [tasksResult, postsResult] = await Promise.all([
+      pool.query(
+        `SELECT id, title, category, payout_kes, duration_minutes, risk_level, description
+         FROM tasks WHERE active = TRUE ORDER BY created_at DESC`
+      ),
+      pool.query(
+        "SELECT * FROM task_posts WHERE status = 'approved' AND due_date >= CURRENT_DATE ORDER BY created_at DESC"
+      ),
+    ]);
+    return res.json({ tasks: [...tasksResult.rows, ...postsResult.rows.map(asPublishedTask)] });
   }
 
   const publishedPosts = mockTaskPosts
     .filter((post) => post.status === 'approved' && new Date(`${post.due_date}T00:00:00.000Z`) >= new Date(new Date().toISOString().slice(0, 10)))
     .map(asPublishedTask);
-  res.json({ tasks: [...mockTasks, ...publishedPosts] });
+  res.json({ tasks: publishedPosts });
 });
 
 app.post('/api/task-posts', async (req, res) => {
@@ -624,18 +576,26 @@ app.post('/api/tasks/:id/submit', requireAuth, async (req, res) => {
   const { id } = req.params;
   const { notes = '', proofType = 'camera_capture', imageUrl = '' } = req.body || {};
 
-  const submission = {
-    id: `sub-${Date.now()}`,
-    user_id: Number(req.user.sub),
-    task_id: id,
-    status: 'pending_review',
-    proof_type: proofType,
-    notes,
-    image_url: imageUrl,
-    created_at: new Date().toISOString(),
-  };
+  let submission;
+  if (databaseOnline) {
+    const result = await pool.query(
+      `INSERT INTO task_submissions (user_id, task_id, proof_type, notes, image_url, status)
+       SELECT $1, tasks.id, $3, $4, $5, 'pending_review'
+       FROM tasks WHERE tasks.id = $2 AND tasks.active = TRUE
+       RETURNING *`,
+      [req.user.sub, id, proofType, notes, imageUrl]
+    );
+    [submission] = result.rows;
+  } else {
+    const task = mockTaskPosts.find((item) => item.id === id && item.status === 'approved');
+    if (task) {
+      return res.status(400).json({ message: 'This task cannot accept submissions in development fallback mode.' });
+    }
+  }
 
-  mockSubmissions.unshift(submission);
+  if (!databaseOnline || !submission) {
+    return res.status(404).json({ message: 'Active database task not found.' });
+  }
 
   return res.status(201).json({
     message: 'Task proof submitted successfully and moved to admin review.',
@@ -644,51 +604,187 @@ app.post('/api/tasks/:id/submit', requireAuth, async (req, res) => {
 });
 
 app.get('/api/user/dashboard', requireAuth, async (req, res) => {
-  const user = await findUserById(req.user.sub);
-  const wallet = await loadWallet(req.user.sub);
+  if (databaseOnline) {
+    const user = await findUserById(req.user.sub);
+    if (!user) return res.status(404).json({ message: 'User account not found.' });
+    const [wallet, statsResult, activityResult] = await Promise.all([
+      loadWallet(req.user.sub),
+      pool.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE status = 'approved')::int AS approved_submissions,
+           COUNT(*) FILTER (WHERE status = 'pending_review')::int AS pending_submissions,
+           COUNT(*) FILTER (WHERE status = 'rejected')::int AS rejected_submissions
+         FROM task_submissions WHERE user_id = $1`,
+        [req.user.sub]
+      ),
+      pool.query(
+        `SELECT activity_type, description, status, created_at, amount_kes
+         FROM (
+           SELECT 'task'::text AS activity_type, tasks.title AS description,
+                  task_submissions.status, task_submissions.created_at,
+                  NULL::numeric AS amount_kes
+           FROM task_submissions
+           JOIN tasks ON tasks.id = task_submissions.task_id
+           WHERE task_submissions.user_id = $1
+           UNION ALL
+           SELECT 'payout'::text AS activity_type, payouts.method AS description,
+                  payouts.status, payouts.created_at, payouts.amount_kes
+           FROM payouts WHERE payouts.user_id = $1
+         ) AS activity
+         ORDER BY created_at DESC LIMIT 10`,
+        [req.user.sub]
+      ),
+    ]);
+    const referralsResult = await pool.query(
+      `SELECT COUNT(*)::int AS count, COALESCE(SUM(commission_kes), 0)::numeric AS commission_kes
+       FROM referrals WHERE referrer_id = $1`,
+      [req.user.sub]
+    );
+    return res.json({
+      user: sanitizeUser(user),
+      wallet,
+      stats: { ...statsResult.rows[0], ...referralsResult.rows[0] },
+      recentActivity: activityResult.rows,
+    });
+  }
 
-  res.json({
+  const user = await findUserById(req.user.sub);
+  if (!user) return res.status(404).json({ message: 'User account not found.' });
+  const wallet = await loadWallet(req.user.sub);
+  const userSubmissions = mockSubmissions.filter((item) => String(item.user_id) === String(req.user.sub));
+  const userReferrals = mockReferrals.filter((item) => String(item.referrer_id) === String(req.user.sub));
+  const recentActivity = [
+    ...userSubmissions.map((item) => ({
+      activity_type: 'task',
+      description: item.title || 'Task submission',
+      status: item.status,
+      created_at: item.created_at,
+      amount_kes: null,
+    })),
+    ...mockPayouts.filter((item) => String(item.user_id) === String(req.user.sub)).map((item) => ({
+      activity_type: 'payout',
+      description: item.method,
+      status: item.status,
+      created_at: item.created_at,
+      amount_kes: item.amount_kes,
+    })),
+  ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 10);
+  return res.json({
     user: sanitizeUser(user),
     wallet,
     stats: {
-      today: 420,
-      weekly: 2890,
-      tasksDone: 26,
-      referrals: 11,
+      approved_submissions: userSubmissions.filter((item) => item.status === 'approved').length,
+      pending_submissions: userSubmissions.filter((item) => item.status === 'pending_review').length,
+      rejected_submissions: userSubmissions.filter((item) => item.status === 'rejected').length,
+      count: userReferrals.length,
+      commission_kes: userReferrals.reduce((total, item) => total + Number(item.commission_kes || 0), 0),
     },
-    recentActivity: [
-      'Survey completed and approved',
-      'Referral bonus unlocked',
-      'Streak reward increased',
-      'Withdrawal request submitted',
-    ],
+    recentActivity,
   });
 });
 
-app.get('/api/admin/overview', requireAuth, requireAdmin, (req, res) => {
-  res.json({
-    usersOnline: 2480,
-    payoutsPending: 164,
-    taskApprovals: 932,
-    fraudAlerts: 12,
-    queue: mockSubmissions,
-    revenue: 2400000,
+app.get('/api/user/referrals', requireAuth, async (req, res) => {
+  if (databaseOnline) {
+    const [user, referrals] = await Promise.all([
+      findUserById(req.user.sub),
+      pool.query(
+        `SELECT referrals.id, users.full_name, referrals.commission_kes,
+                referrals.status, referrals.created_at
+         FROM referrals
+         JOIN users ON users.id = referrals.referred_user_id
+         WHERE referrals.referrer_id = $1
+         ORDER BY referrals.created_at DESC`,
+        [req.user.sub]
+      ),
+    ]);
+    if (!user) return res.status(404).json({ message: 'User account not found.' });
+    return res.json({ referralCode: user.referral_code, referrals: referrals.rows });
+  }
+
+  const user = await findUserById(req.user.sub);
+  if (!user) return res.status(404).json({ message: 'User account not found.' });
+  return res.json({
+    referralCode: user.referral_code,
+    referrals: mockReferrals
+      .filter((item) => String(item.referrer_id) === String(req.user.sub))
+      .map((item) => ({
+        id: item.id,
+        full_name: item.full_name || 'Referred account',
+        commission_kes: item.commission_kes,
+        status: item.status,
+        created_at: item.created_at,
+      })),
   });
 });
 
-app.get('/api/admin/tasks', requireAuth, requireAdmin, (req, res) => {
-  res.json({ tasks: mockSubmissions });
+app.get('/api/admin/overview', requireAuth, requireAdmin, async (req, res) => {
+  if (databaseOnline) {
+    const [users, payouts, submissions, taskPosts, campaigns] = await Promise.all([
+      pool.query('SELECT COUNT(*)::int AS count FROM users'),
+      pool.query("SELECT COUNT(*)::int AS count FROM payouts WHERE status IN ('pending', 'pending_approval')"),
+      pool.query("SELECT COUNT(*)::int AS count FROM task_submissions WHERE status = 'pending_review'"),
+      pool.query("SELECT COUNT(*)::int AS count FROM task_posts WHERE status = 'pending_review'"),
+      pool.query('SELECT COUNT(*)::int AS count FROM campaigns WHERE active = TRUE'),
+    ]);
+    return res.json({
+      usersTotal: users.rows[0].count,
+      payoutsPending: payouts.rows[0].count,
+      submissionsPending: submissions.rows[0].count,
+      taskPostsPending: taskPosts.rows[0].count,
+      campaignsActive: campaigns.rows[0].count,
+    });
+  }
+
+  return res.json({
+    usersTotal: mockUsers.length,
+    payoutsPending: mockPayouts.filter((item) => ['pending', 'pending_approval'].includes(item.status)).length,
+    submissionsPending: mockSubmissions.filter((item) => item.status === 'pending_review').length,
+    taskPostsPending: mockTaskPosts.filter((item) => item.status === 'pending_review').length,
+    campaignsActive: 0,
+  });
 });
 
-app.patch('/api/admin/tasks/:id/status', requireAuth, requireAdmin, (req, res) => {
+app.get('/api/admin/tasks', requireAuth, requireAdmin, async (req, res) => {
+  if (databaseOnline) {
+    const result = await pool.query(
+      `SELECT task_submissions.id, users.full_name AS user_name, tasks.title AS task_title,
+              tasks.payout_kes AS amount_kes, task_submissions.status, task_submissions.created_at
+       FROM task_submissions
+       JOIN users ON users.id = task_submissions.user_id
+       JOIN tasks ON tasks.id = task_submissions.task_id
+       ORDER BY task_submissions.created_at DESC LIMIT 100`
+    );
+    return res.json({ tasks: result.rows });
+  }
+  return res.json({ tasks: mockSubmissions });
+});
+
+app.patch('/api/admin/tasks/:id/status', requireAuth, requireAdmin, async (req, res) => {
   const { status } = req.body || {};
-  const submission = mockSubmissions.find((item) => item.id === req.params.id);
+  if (!['approved', 'rejected'].includes(status)) {
+    return res.status(400).json({ message: 'Status must be approved or rejected.' });
+  }
+
+  let submission;
+  if (databaseOnline) {
+    const result = await pool.query(
+      `UPDATE task_submissions SET status = $2, reviewed_at = NOW()
+       WHERE id = $1 AND status = 'pending_review' RETURNING *`,
+      [req.params.id, status]
+    );
+    [submission] = result.rows;
+  } else {
+    submission = mockSubmissions.find((item) => item.id === req.params.id && item.status === 'pending_review');
+    if (submission) {
+      submission.status = status;
+      submission.reviewed_at = new Date().toISOString();
+    }
+  }
 
   if (!submission) {
     return res.status(404).json({ message: 'Submission not found.' });
   }
 
-  submission.status = status || 'approved';
   return res.json({ message: 'Submission status updated.', submission });
 });
 
@@ -714,8 +810,18 @@ app.post('/api/payouts/request', requireAuth, async (req, res) => {
   return res.status(201).json({ message: 'Payout request submitted to the admin queue.', payout });
 });
 
-app.get('/api/admin/payouts', requireAuth, requireAdmin, (req, res) => {
-  res.json({ payouts: mockPayouts });
+app.get('/api/admin/payouts', requireAuth, requireAdmin, async (req, res) => {
+  if (databaseOnline) {
+    const result = await pool.query(
+      `SELECT payouts.id, users.full_name AS user_name, payouts.method, payouts.destination,
+              payouts.amount_kes, payouts.status, payouts.created_at
+       FROM payouts
+       JOIN users ON users.id = payouts.user_id
+       ORDER BY payouts.created_at DESC LIMIT 100`
+    );
+    return res.json({ payouts: result.rows });
+  }
+  return res.json({ payouts: mockPayouts });
 });
 
 async function startServer() {
