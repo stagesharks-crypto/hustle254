@@ -1,8 +1,25 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import './App.css'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
+
+function isValidEmailAddress(value) {
+  if (typeof value !== 'string' || value.length > 254) return false
+  const parts = value.trim().split('@')
+  if (parts.length !== 2) return false
+
+  const [localPart, domain] = parts
+  if (
+    localPart.length > 64
+    || !/^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*$/.test(localPart)
+  ) return false
+
+  const labels = domain.split('.')
+  return labels.length >= 2 && labels.every((label) => (
+    label.length <= 63
+    && /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(label)
+  ))
+}
 
 async function apiRequest(path, options = {}) {
   const { token, ...requestOptions } = options
@@ -1092,11 +1109,17 @@ function AuthPage({ type, onChangeType, onAuthenticated }) {
     setSubmitting(true)
     setError('')
     const formData = new FormData(event.currentTarget)
+    const email = String(formData.get('email') || '').trim()
+    if (!isLogin && !isValidEmailAddress(email)) {
+      setError('Invalid email address. Check the spelling and enter a correctly formatted address.')
+      setSubmitting(false)
+      return
+    }
     const payload = isLogin
       ? { identifier: formData.get('identifier'), password: formData.get('password') }
       : {
           fullName: formData.get('fullName'),
-          email: formData.get('email'),
+          email,
           phone: formData.get('phone'),
           password: formData.get('password'),
           referralCode: formData.get('referralCode'),
@@ -1126,8 +1149,6 @@ function AuthPage({ type, onChangeType, onAuthenticated }) {
         </div>
 
         {error && <div className="form-error" role="alert">{error}</div>}
-        <GoogleSignInButton onAuthenticated={onAuthenticated} onError={setError} />
-        <div className="auth-divider"><span>or continue with email</span></div>
         <form className="form-grid" onSubmit={handleAuth}>
           {!isLogin && (
             <label>
@@ -1137,7 +1158,17 @@ function AuthPage({ type, onChangeType, onAuthenticated }) {
           )}
           <label>
             {isLogin ? 'Email or phone' : 'Email'}
-            <input name={isLogin ? 'identifier' : 'email'} type={isLogin ? 'text' : 'email'} autoComplete={isLogin ? 'username' : 'email'} placeholder={isLogin ? 'Enter email or phone' : 'you@example.com'} required />
+            <input
+              name={isLogin ? 'identifier' : 'email'}
+              type={isLogin ? 'text' : 'email'}
+              autoComplete={isLogin ? 'username' : 'email'}
+              maxLength={isLogin ? undefined : 254}
+              placeholder={isLogin ? 'Enter email or phone' : 'you@example.com'}
+              onInvalid={isLogin ? undefined : (event) => event.currentTarget.setCustomValidity('Invalid email address. Check the spelling and enter a correctly formatted address.')}
+              onInput={isLogin ? undefined : (event) => event.currentTarget.setCustomValidity('')}
+              required
+            />
+            {!isLogin && <small>We check the address format only; this does not verify that the inbox exists.</small>}
           </label>
           {!isLogin && (
             <label>
@@ -1162,84 +1193,6 @@ function AuthPage({ type, onChangeType, onAuthenticated }) {
       </div>
     </div>
   )
-}
-
-function GoogleSignInButton({ onAuthenticated, onError }) {
-  const buttonContainer = useRef(null)
-
-  useEffect(() => {
-    const container = buttonContainer.current
-    if (!GOOGLE_CLIENT_ID || !container) return undefined
-
-    let cancelled = false
-    let script = document.getElementById('google-identity-services')
-
-    function renderGoogleButton() {
-      if (cancelled || !window.google?.accounts?.id) return
-      window.google.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: async (response) => {
-          try {
-            const result = await apiRequest('/auth/google', {
-              method: 'POST',
-              body: JSON.stringify({ credential: response.credential }),
-            })
-            onAuthenticated({ token: result.token, user: result.user })
-          } catch (error) {
-            onError(error.message)
-          }
-        },
-      })
-      window.google.accounts.id.renderButton(container, {
-        theme: 'outline',
-        size: 'large',
-        text: 'continue_with',
-        shape: 'rectangular',
-        width: Math.max(buttonContainer.current.clientWidth, 240),
-      })
-    }
-
-    function handleScriptError() {
-      onError('Google sign-in could not load. Please use email and password instead.')
-    }
-
-    if (window.google?.accounts?.id) {
-      renderGoogleButton()
-    } else {
-      if (!script) {
-        script = document.createElement('script')
-        script.id = 'google-identity-services'
-        script.src = 'https://accounts.google.com/gsi/client'
-        script.async = true
-        script.defer = true
-        document.head.appendChild(script)
-      }
-      script.addEventListener('load', renderGoogleButton)
-      script.addEventListener('error', handleScriptError)
-    }
-
-    return () => {
-      cancelled = true
-      script?.removeEventListener('load', renderGoogleButton)
-      script?.removeEventListener('error', handleScriptError)
-      container.replaceChildren()
-    }
-  }, [onAuthenticated, onError])
-
-  if (!GOOGLE_CLIENT_ID) {
-    return (
-      <button
-        type="button"
-        className="google-auth-button google-auth-unconfigured"
-        onClick={() => onError('Google sign-in is not configured yet. Add the Google OAuth client ID to the website and API environment settings.')}
-      >
-        <span className="google-mark" aria-hidden="true">G</span>
-        Continue with Google
-      </button>
-    )
-  }
-
-  return <div className="google-auth-container" ref={buttonContainer} aria-label="Continue with Google" />
 }
 
 function LegalPage() {
