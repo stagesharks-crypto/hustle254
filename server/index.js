@@ -4,8 +4,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import pg from 'pg';
 import dotenv from 'dotenv';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { OAuth2Client } from 'google-auth-library';
+import { timingSafeEqual } from 'node:crypto';
 
 dotenv.config();
 
@@ -20,9 +19,6 @@ const clientOrigins = [process.env.CLIENT_URL || 'http://localhost:4173,http://l
 const databaseUrl = process.env.DATABASE_URL || '';
 const isProduction = process.env.NODE_ENV === 'production';
 const ADMIN_ACCESS_PASSWORD = process.env.ADMIN_ACCESS_PASSWORD || '';
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
-const googleOAuthClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
-
 const { Pool } = pg;
 const pool = new Pool({
   connectionString: databaseUrl || 'postgresql://postgres:postgres@localhost:5432/hustle254',
@@ -120,7 +116,7 @@ function requireAuth(req, res, next) {
     const payload = jwt.verify(token, JWT_SECRET);
     req.user = payload;
     next();
-  } catch (error) {
+  } catch {
     return res.status(401).json({ message: 'Invalid or expired token.' });
   }
 }
@@ -260,11 +256,35 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', database: databaseOnline ? 'connected' : 'fallback' });
 });
 
+function isValidEmailAddress(value) {
+  if (typeof value !== 'string' || value.length > 254) return false;
+  const parts = value.trim().split('@');
+  if (parts.length !== 2) return false;
+
+  const [localPart, domain] = parts;
+  if (
+    localPart.length > 64
+    || !/^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*$/.test(localPart)
+  ) return false;
+
+  const labels = domain.split('.');
+  return labels.length >= 2 && labels.every((label) => (
+    label.length <= 63
+    && /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(label)
+  ));
+}
+
 app.post('/api/auth/signup', async (req, res) => {
-  const { fullName, email, phone, password, referralCode } = req.body || {};
+  const { fullName, phone, password, referralCode } = req.body || {};
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
 
   if (!fullName || !email || !phone || !password) {
     return res.status(400).json({ message: 'Full name, email, phone, and password are required.' });
+  }
+  if (!isValidEmailAddress(email)) {
+    return res.status(400).json({
+      message: 'Invalid email address. Check the spelling and enter a correctly formatted address.',
+    });
   }
 
   const existingUser = await findUserByIdentifier(email || phone);
@@ -354,95 +374,6 @@ app.post('/api/auth/login', async (req, res) => {
     user: sanitizeUser(user),
     wallet,
   });
-});
-
-app.post('/api/auth/google', async (req, res) => {
-  if (!googleOAuthClient) {
-    return res.status(503).json({ message: 'Google sign-in is not configured for this deployment.' });
-  }
-
-  const { credential } = req.body || {};
-  if (!credential) return res.status(400).json({ message: 'Google credential is required.' });
-
-  let googleProfile;
-  try {
-    const ticket = await googleOAuthClient.verifyIdToken({ idToken: credential, audience: GOOGLE_CLIENT_ID });
-    googleProfile = ticket.getPayload();
-  } catch {
-    return res.status(401).json({ message: 'Google could not verify this sign-in. Please try again.' });
-  }
-
-  if (!googleProfile?.email || googleProfile.email_verified !== true || !googleProfile.sub) {
-    return res.status(401).json({ message: 'A verified Google email is required.' });
-  }
-
-  let user;
-  if (databaseOnline) {
-    user = (await pool.query('SELECT * FROM users WHERE google_sub = $1 LIMIT 1', [googleProfile.sub])).rows[0];
-    if (!user) user = (await pool.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1', [googleProfile.email])).rows[0];
-
-    if (user?.google_sub && user.google_sub !== googleProfile.sub) {
-      return res.status(409).json({ message: 'This email is linked to a different Google account.' });
-    }
-
-    if (user && !user.google_sub) {
-      const linked = await pool.query('UPDATE users SET google_sub = $2 WHERE id = $1 RETURNING *', [user.id, googleProfile.sub]);
-      [user] = linked.rows;
-    }
-
-    if (!user) {
-      const generatedPassword = await bcrypt.hash(randomBytes(32).toString('hex'), 10);
-      const referralCode = `H${randomBytes(4).toString('hex').toUpperCase()}`;
-      const connection = await pool.connect();
-      try {
-        await connection.query('BEGIN');
-        const inserted = await connection.query(
-          `INSERT INTO users (full_name, email, phone, password_hash, google_sub, referral_code, is_verified)
-           VALUES ($1, $2, NULL, $3, $4, $5, TRUE) RETURNING *`,
-          [googleProfile.name || googleProfile.email.split('@')[0], googleProfile.email.toLowerCase(), generatedPassword, googleProfile.sub, referralCode]
-        );
-        [user] = inserted.rows;
-        await connection.query('INSERT INTO wallets (user_id) VALUES ($1)', [user.id]);
-        await connection.query('COMMIT');
-      } catch (error) {
-        await connection.query('ROLLBACK');
-        if (error.code === '23505') return res.status(409).json({ message: 'This Google account is already linked. Please sign in again.' });
-        throw error;
-      } finally {
-        connection.release();
-      }
-    }
-  } else {
-    user = mockUsers.find((item) => item.google_sub === googleProfile.sub)
-      || mockUsers.find((item) => item.email.toLowerCase() === googleProfile.email.toLowerCase());
-
-    if (user?.google_sub && user.google_sub !== googleProfile.sub) {
-      return res.status(409).json({ message: 'This email is linked to a different Google account.' });
-    }
-
-    if (!user) {
-      user = {
-        id: Date.now(),
-        full_name: googleProfile.name || googleProfile.email.split('@')[0],
-        email: googleProfile.email.toLowerCase(),
-        phone: null,
-        password_hash: await bcrypt.hash(randomBytes(32).toString('hex'), 10),
-        google_sub: googleProfile.sub,
-        role: 'user',
-        referral_code: `H${randomBytes(4).toString('hex').toUpperCase()}`,
-        status: 'active',
-        is_verified: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      mockUsers.push(user);
-      mockWallets.push({ id: Date.now() + 1, user_id: user.id, balance_kes: 0, pending_kes: 0, withdrawn_kes: 0 });
-    } else if (!user.google_sub) {
-      user.google_sub = googleProfile.sub;
-    }
-  }
-
-  return res.json({ token: generateToken(user), user: sanitizeUser(user) });
 });
 
 app.post('/api/admin/access', requireAuth, (req, res) => {
