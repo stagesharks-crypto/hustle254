@@ -58,8 +58,10 @@ function formatDate(value) {
 const publicNavigation = [
   { label: 'Home', icon: 'H' },
   { label: 'Tasks', icon: 'T' },
-  { label: 'Post a task', icon: 'P' },
   { label: 'Features', icon: 'F' },
+]
+
+const learningNavigation = [
   { label: 'How it works', icon: 'i' },
   { label: 'Trust', icon: 'T' },
   { label: 'Legal', icon: 'L' },
@@ -71,7 +73,7 @@ const accountNavigation = [
   { label: 'Referral', icon: 'R' },
 ]
 
-const memberPages = new Set(['Tasks', 'Post a task', 'Wallet', 'Referral', 'Dashboard', 'Admin'])
+const memberPages = new Set(['Tasks', 'Wallet', 'Referral', 'Dashboard', 'Admin', 'Poster', 'Post a task'])
 
 const howSteps = [
   { title: 'Create your account', text: 'Sign up quickly with your phone number, profile basics, and KYC-friendly verification.' },
@@ -181,6 +183,7 @@ function App() {
   async function createTaskPost(values) {
     return apiRequest('/task-posts', {
       method: 'POST',
+      token: session?.token,
       body: JSON.stringify(values),
     })
   }
@@ -202,7 +205,12 @@ function App() {
   function handleAuthenticated(nextSession) {
     localStorage.setItem('hustle254-session', JSON.stringify(nextSession))
     setSession(nextSession)
-    setNavigationRoot(nextSession.user.role === 'admin' ? 'Admin' : 'Dashboard')
+    const landingPage = nextSession.user.role === 'admin'
+      ? 'Admin'
+      : nextSession.user.role === 'poster'
+        ? 'Poster'
+        : 'Dashboard'
+    setNavigationRoot(landingPage)
   }
 
   async function handleAdminPassword(password) {
@@ -235,9 +243,15 @@ function App() {
       case 'Features':
         return <FeaturesPage setCurrentPage={setCurrentPage} session={session} />
       case 'Tasks':
-        return <TasksPage tasks={tasks} selectedTask={selectedTask} setSelectedTask={setSelectedTaskId} loading={tasksLoading} error={tasksError} />
+        return <TasksPage tasks={tasks} selectedTask={selectedTask} setSelectedTask={setSelectedTaskId} loading={tasksLoading} error={tasksError} session={session} />
       case 'Post a task':
-        return <PostTaskPage onSubmit={createTaskPost} />
+        return session?.user?.role === 'poster'
+          ? <PostTaskPage onSubmit={createTaskPost} user={session.user} />
+          : <SignInRequiredPage setCurrentPage={setCurrentPage} />
+      case 'Poster':
+        return session?.user?.role === 'poster'
+          ? <PosterPage session={session} setCurrentPage={setCurrentPage} />
+          : <SignInRequiredPage setCurrentPage={setCurrentPage} />
       case 'Wallet':
         return <WalletPage session={session} />
       case 'Referral':
@@ -261,7 +275,8 @@ function App() {
         return <LegalPage />
       case 'Login':
       case 'Sign up':
-        return <AuthPage type={effectivePage === 'Login' ? 'login' : 'signup'} onChangeType={(page) => setCurrentPage(page, { replace: true })} onAuthenticated={handleAuthenticated} />
+      case 'Poster signup':
+        return <AuthPage type={effectivePage === 'Login' ? 'login' : effectivePage === 'Poster signup' ? 'posterSignup' : 'signup'} onChangeType={(page) => setCurrentPage(page, { replace: true })} onAuthenticated={handleAuthenticated} />
       case 'Home':
       default:
         return <HomePage setCurrentPage={setCurrentPage} session={session} />
@@ -292,8 +307,8 @@ function App() {
               {item.label}
             </button>
           ))}
-          <span className="side-nav-label account-label">Your account</span>
-          {accountNavigation.map((item) => (
+          <span className="side-nav-label account-label">How it works</span>
+          {learningNavigation.map((item) => (
             <button
               key={item.label}
               type="button"
@@ -304,13 +319,53 @@ function App() {
               {item.label}
             </button>
           ))}
+          {session.user.role === 'poster' && <>
+            <span className="side-nav-label account-label">Poster account</span>
+            {[
+              { label: 'Poster', icon: 'P', title: 'Poster account' },
+              { label: 'Post a task', icon: '+', title: 'Post a task' },
+            ].map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                onClick={() => { setCurrentPage(item.label); setIsMenuOpen(false) }}
+                className={currentPage === item.label ? 'side-nav-link active' : 'side-nav-link'}
+              >
+                <span className="side-nav-icon" aria-hidden="true">{item.icon}</span>
+                {item.title}
+              </button>
+            ))}
+          </>}
+          {(session.user.role === 'user' || session.user.role === 'admin') && <>
+            <span className="side-nav-label account-label">Your account</span>
+            {(session.user.role === 'user'
+              ? accountNavigation
+              : [{ label: 'Admin', icon: 'A' }]
+            ).map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                onClick={() => { setCurrentPage(item.label); setIsMenuOpen(false) }}
+                className={currentPage === item.label ? 'side-nav-link active' : 'side-nav-link'}
+              >
+                <span className="side-nav-icon" aria-hidden="true">{item.icon}</span>
+                {item.label}
+              </button>
+            ))}
+          </>}
         </nav>
 
         <div className="side-menu-footer">
-          <p>{session.user.role === 'admin' ? 'Admin tools and account overview' : 'Your account is ready'}</p>
-          <button type="button" className="btn btn-primary btn-block" onClick={() => { setCurrentPage(session.user.role === 'admin' ? 'Admin' : 'Dashboard'); setIsMenuOpen(false) }}>
-            {session.user.role === 'admin' ? 'Open admin dashboard' : 'Open dashboard'}
-          </button>
+          {session.user.role === 'poster' ? <>
+            <p>For task posters</p>
+            <button type="button" className="btn btn-primary btn-block" onClick={() => { setCurrentPage('Post a task'); setIsMenuOpen(false) }}>Post a task</button>
+          </> : session.user.role === 'user' ? <>
+            <p>Want to publish tasks?</p>
+            <button type="button" className="btn btn-primary btn-block" onClick={() => { setCurrentPage('Poster signup'); setIsMenuOpen(false) }}>Register as a poster</button>
+          </> : <>
+            <p>Admin tools and account overview</p>
+            <button type="button" className="btn btn-primary btn-block" onClick={() => { setCurrentPage('Admin'); setIsMenuOpen(false) }}>Open admin dashboard</button>
+          </>}
         </div>
       </aside>}
 
@@ -389,13 +444,14 @@ function HomePage({ setCurrentPage, session }) {
           <p>Find paid surveys, social campaigns and simple online tasks. Do the work, submit proof, and track every reward in one place.</p>
           <div className="welcome-actions">
             {session ? (
-              <button type="button" className="btn welcome-primary" onClick={() => setCurrentPage(primaryDestination)}>
-                {session.user.role === 'admin' ? 'Open admin dashboard' : 'Go to your dashboard'} <span aria-hidden="true">→</span>
+              <button type="button" className="btn welcome-primary" onClick={() => setCurrentPage(session.user.role === 'poster' ? 'Poster' : primaryDestination)}>
+                {session.user.role === 'admin' ? 'Open admin dashboard' : session.user.role === 'poster' ? 'Open poster account' : 'Go to your dashboard'} <span aria-hidden="true">→</span>
               </button>
             ) : (
               <button type="button" className="btn welcome-primary" onClick={() => setCurrentPage('Sign up')}>Create your free account <span aria-hidden="true">→</span></button>
             )}
             <button type="button" className="welcome-secondary" onClick={() => setCurrentPage('Tasks')}>Explore available tasks</button>
+            {!session && <button type="button" className="welcome-secondary" onClick={() => setCurrentPage('Poster signup')}>Register as a poster</button>}
           </div>
           <div className="welcome-note"><span aria-hidden="true">✓</span> Clear task rules. No fee to join.</div>
           <div className="welcome-payments">
@@ -499,7 +555,50 @@ function FeaturesPage({ setCurrentPage, session }) {
   )
 }
 
-function TasksPage({ tasks, selectedTask, setSelectedTask, loading, error }) {
+function TasksPage({ tasks, selectedTask, setSelectedTask, loading, error, session }) {
+  const [submittingProof, setSubmittingProof] = useState(false)
+  const [proofError, setProofError] = useState('')
+  const [proofSuccess, setProofSuccess] = useState('')
+
+  async function submitProof(event) {
+    event.preventDefault()
+    if (!session?.token || !selectedTask) return
+    setSubmittingProof(true)
+    setProofError('')
+    setProofSuccess('')
+    try {
+      const form = event.currentTarget
+      const formData = new FormData(form)
+      const image = formData.get('proofImage')
+      let imageUrl = ''
+      if (image instanceof File && image.size > 0) {
+        if (!image.type.startsWith('image/')) throw new Error('Choose an image file for your proof.')
+        if (image.size > 3 * 1024 * 1024) throw new Error('Proof images must be 3 MB or smaller.')
+        imageUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result || ''))
+          reader.onerror = () => reject(new Error('The proof image could not be read. Please try another image.'))
+          reader.readAsDataURL(image)
+        })
+      }
+      const result = await apiRequest(`/tasks/${encodeURIComponent(selectedTask.id)}/submit`, {
+        method: 'POST',
+        token: session.token,
+        body: JSON.stringify({
+          notes: String(formData.get('notes') || ''),
+          proofType: imageUrl ? 'camera_capture' : 'notes',
+          imageUrl,
+        }),
+      })
+      setProofSuccess(result.message)
+      form.reset()
+    } catch (submitError) {
+      setProofError(submitError.message)
+    } finally {
+      setSubmittingProof(false)
+    }
+  }
+
   return (
     <div className="page-wrap">
       <PageHeader
@@ -562,9 +661,9 @@ function TasksPage({ tasks, selectedTask, setSelectedTask, loading, error }) {
             </a>
           )}
 
-          <form className="proof-form">
+          <form className="proof-form" onSubmit={submitProof}>
             <div className="warning-banner">
-              Gallery photo selection is disabled. Use the live camera to submit proof for this task.
+              Choose or capture a proof image. Uploaded image files are limited to 3 MB.
             </div>
 
             <label>
@@ -573,13 +672,18 @@ function TasksPage({ tasks, selectedTask, setSelectedTask, loading, error }) {
             </label>
 
             <label>
-              Live camera capture
-              <input type="file" accept="image/*" capture="environment" />
+              Notes for the reviewer
+              <textarea name="notes" maxLength="2000" placeholder="Add any task completion details the reviewer needs." />
+            </label>
+            <label>
+              Proof image (optional)
+              <input name="proofImage" type="file" accept="image/*" capture="environment" />
             </label>
 
+            {proofError && <div className="form-error" role="alert">{proofError}</div>}
+            {proofSuccess && <div className="submission-success" role="status">{proofSuccess}</div>}
             <div className="proof-actions">
-              <button type="button" className="btn btn-primary">Submit proof</button>
-              <button type="button" className="btn btn-secondary">Save draft</button>
+              <button type="submit" className="btn btn-primary" disabled={submittingProof}>{submittingProof ? 'Submitting…' : 'Submit proof for review'}</button>
             </div>
           </form>
         </div> : (
@@ -649,12 +753,8 @@ function PostTaskPage({ onSubmit }) {
           <div className="form-section-heading"><span>01</span><div><h2>Describe the work</h2><p>Give participants clear expectations and a reliable way to complete it.</p></div></div>
           <div className="post-form-grid">
             <label>
-              Your name or business <span>*</span>
-              <input name="posterName" type="text" autoComplete="name" maxLength="100" placeholder="e.g. Acacia Market" required />
-            </label>
-            <label>
-              Contact email <span>*</span>
-              <input name="posterEmail" type="email" autoComplete="email" maxLength="254" placeholder="you@business.co.ke" required />
+              Poster account
+              <input value="Your registered poster name and email are used." readOnly />
             </label>
             <label className="form-field-wide">
               Task title <span>*</span>
@@ -728,6 +828,93 @@ function PostTaskPage({ onSubmit }) {
           <p className="budget-disclaimer">Submitting a post does not collect or hold funds. An admin must verify the reward budget before approval.</p>
         </aside>
       </div>
+    </div>
+  )
+}
+
+function PosterPage({ session, setCurrentPage }) {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    apiRequest('/poster/dashboard', { token: session.token })
+      .then((result) => { if (active) setData(result) })
+      .catch((requestError) => { if (active) setError(requestError.message) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [session.token])
+
+  return (
+    <div className="page-wrap">
+      <PageHeader
+        eyebrow="Poster account"
+        title="Manage your account and track every task post."
+        subtitle="See review decisions, participant activity, and requested budgets tied to your poster account."
+        actions={<button type="button" className="btn btn-primary" onClick={() => setCurrentPage('Post a task')}>Post a task</button>}
+      />
+
+      {loading && <p>Loading your poster account…</p>}
+      {error && <div className="form-error" role="alert">{error}</div>}
+
+      <div className="stats-grid">
+        {[
+          ['All posts', data?.totals.posts],
+          ['Pending review', data?.totals.pending_review],
+          ['Approved', data?.totals.approved],
+          ['Rejected', data?.totals.rejected],
+          ['Estimated requested budget', data ? formatKes(data.totals.estimated_requested_budget_kes) : '—'],
+        ].map(([label, value]) => (
+          <div className="stat-card panel" key={label}>
+            <label>{label}</label>
+            <strong>{value ?? '—'}</strong>
+          </div>
+        ))}
+      </div>
+
+      <div className="dashboard-grid">
+        <section className="panel poster-account-panel">
+          <h2>Account details</h2>
+          <div className="history-list">
+            <div className="history-row"><strong>Name</strong><span>{data?.account.full_name || session.user.full_name}</span></div>
+            <div className="history-row"><strong>Email</strong><span>{data?.account.email || session.user.email}</span></div>
+            <div className="history-row"><strong>Phone</strong><span>{data?.account.phone || session.user.phone || 'Not provided'}</span></div>
+            <div className="history-row"><strong>Account status</strong><span>{data?.account.status || 'Active'}</span></div>
+          </div>
+        </section>
+
+        <section className="panel poster-billing-panel">
+          <h2>Balance and billing</h2>
+          <p className="status-badge">Payments setup planned for Step 5</p>
+          <p>{data?.billing.message || 'Poster balances and deposits are not available yet.'}</p>
+          <p>Requested task budgets are estimates only. Submitting a task does not charge you, collect funds, or escrow rewards.</p>
+        </section>
+      </div>
+
+      <section className="panel poster-post-list">
+        <div className="review-section-heading">
+          <div><span className="home-overline">Your activity</span><h2>Task posts</h2></div>
+          <span className="review-count">{data?.totals.posts ?? 0} total</span>
+        </div>
+        {data?.posts?.map((post) => (
+          <article className="poster-post-row" key={post.id}>
+            <div>
+              <span className={`status-badge status-${post.status}`}>{post.status.replace('_', ' ')}</span>
+              <h3>{post.title}</h3>
+              <p>{post.category} · Created {formatDate(post.created_at)}</p>
+            </div>
+            <div className="poster-post-metrics">
+              <span>{post.submissions_count ?? 0} submissions</span>
+              <span>{post.pending_count ?? 0} pending review</span>
+              <span>{post.approved_count ?? 0} approved</span>
+              <span>{post.rejected_count ?? 0} rejected</span>
+              <strong>Requested budget: {formatKes(post.total_budget_kes)}</strong>
+            </div>
+          </article>
+        ))}
+        {!loading && !error && data?.posts?.length === 0 && <p className="empty-review">You haven’t submitted any task posts yet.</p>}
+      </section>
     </div>
   )
 }
@@ -951,11 +1138,16 @@ function AdminAccessGate({ onVerifyAdminPassword }) {
 }
 
 function AdminPage({ session, setCurrentPage, onVerifyAdminPassword, taskPosts, error, onModerateTaskPost }) {
-  const [workingPostId, setWorkingPostId] = useState('')
+  const [workingId, setWorkingId] = useState('')
   const [actionError, setActionError] = useState('')
   const [overview, setOverview] = useState(null)
   const [submissions, setSubmissions] = useState([])
   const [payouts, setPayouts] = useState([])
+  const [users, setUsers] = useState([])
+  const [catalog, setCatalog] = useState([])
+  const [campaigns, setCampaigns] = useState([])
+  const [section, setSection] = useState('Overview')
+  const [refreshVersion, setRefreshVersion] = useState(0)
   const [dataLoading, setDataLoading] = useState(true)
   const [dataError, setDataError] = useState('')
 
@@ -966,12 +1158,18 @@ function AdminPage({ session, setCurrentPage, onVerifyAdminPassword, taskPosts, 
       apiRequest('/admin/overview', { token: session.adminToken }),
       apiRequest('/admin/tasks', { token: session.adminToken }),
       apiRequest('/admin/payouts', { token: session.adminToken }),
+      apiRequest('/admin/users', { token: session.adminToken }),
+      apiRequest('/admin/catalog', { token: session.adminToken }),
+      apiRequest('/admin/campaigns', { token: session.adminToken }),
     ])
-      .then(([nextOverview, taskResult, payoutResult]) => {
+      .then(([nextOverview, taskResult, payoutResult, userResult, catalogResult, campaignResult]) => {
         if (!active) return
         setOverview(nextOverview)
         setSubmissions(taskResult.tasks)
         setPayouts(payoutResult.payouts)
+        setUsers(userResult.users)
+        setCatalog(catalogResult.tasks)
+        setCampaigns(campaignResult.campaigns)
         setDataError('')
       })
       .catch((requestError) => {
@@ -981,7 +1179,7 @@ function AdminPage({ session, setCurrentPage, onVerifyAdminPassword, taskPosts, 
         if (active) setDataLoading(false)
       })
     return () => { active = false }
-  }, [session?.adminToken, taskPosts.length])
+  }, [session?.adminToken, taskPosts.length, refreshVersion])
 
   if (!session) {
     return (
@@ -999,18 +1197,44 @@ function AdminPage({ session, setCurrentPage, onVerifyAdminPassword, taskPosts, 
     )
   }
 
+  if (session.user.role !== 'admin') {
+    return (
+      <div className="page-wrap">
+        <PageHeader eyebrow="Restricted area" title="Admin account required." subtitle="This page is reserved for authorized admin accounts." />
+      </div>
+    )
+  }
+
   if (!session.adminToken) return <AdminAccessGate onVerifyAdminPassword={onVerifyAdminPassword} />
 
-  async function reviewPost(postId, status) {
-    setWorkingPostId(postId)
+  async function runAdminAction(id, request, onSuccess) {
+    setWorkingId(id)
     setActionError('')
     try {
-      await onModerateTaskPost(postId, status)
-    } catch (reviewError) {
-      setActionError(reviewError.message)
+      await request()
+      onSuccess?.()
+      setRefreshVersion((version) => version + 1)
+    } catch (requestError) {
+      setActionError(requestError.message)
     } finally {
-      setWorkingPostId('')
+      setWorkingId('')
     }
+  }
+
+  async function reviewPost(postId, status) {
+    await runAdminAction(postId, () => onModerateTaskPost(postId, status))
+  }
+
+  function updateStatus(path, id, status, update) {
+    return runAdminAction(
+      id,
+      () => apiRequest(path, {
+        method: 'PATCH',
+        token: session.adminToken,
+        body: JSON.stringify({ status }),
+      }),
+      update
+    )
   }
 
   return (
@@ -1021,12 +1245,78 @@ function AdminPage({ session, setCurrentPage, onVerifyAdminPassword, taskPosts, 
         subtitle="Counts, task submissions, and payout requests shown here are loaded from stored records."
       />
 
+      {(error || actionError || dataError) && <div className="form-error" role="alert">{actionError || error || dataError}</div>}
+      {dataLoading && <p>Loading operational records…</p>}
+      <nav className="admin-section-tabs" aria-label="Admin management sections">
+        {['Overview', 'Users & posters', 'Task posts', 'Submissions', 'Payouts', 'Task catalog', 'Campaigns'].map((item) => (
+          <button type="button" key={item} className={section === item ? 'admin-section-tab active' : 'admin-section-tab'} aria-current={section === item ? 'page' : undefined} onClick={() => setSection(item)}>
+            {item}
+          </button>
+        ))}
+      </nav>
+
+      <div className="stats-grid">
+        {[
+          ['Users', overview?.usersTotal],
+          ['Posters', overview?.postersTotal],
+          ['Pending payouts', overview?.payoutsPending],
+          ['Submissions awaiting review', overview?.submissionsPending],
+          ['Task posts awaiting review', overview?.taskPostsPending],
+          ['Active campaigns', overview?.campaignsActive],
+        ].map(([label, value]) => (
+          <div key={label} className="stat-card panel">
+            <label>{label}</label>
+            <strong>{value ?? '—'}</strong>
+          </div>
+        ))}
+      </div>
+
+      {section === 'Overview' && (
+        <div className="panel admin-overview-note">
+          <h2>Platform operations</h2>
+          <p>Use the sections above to review account details, publisher submissions, participant proofs, payout decisions, active tasks, and campaigns. Approving a payout only marks it for manual processing; this dashboard does not transfer money.</p>
+        </div>
+      )}
+
+      {section === 'Users & posters' && (
+        <section className="panel admin-data-panel">
+          <h2>Registered accounts</h2>
+          <div className="queue-table admin-record-table">
+            <div className="queue-head"><span>Name / role</span><span>Contact</span><span>Wallet</span><span>Activity</span><span>Status</span><span>Action</span></div>
+            {users.map((user) => (
+              <div className="queue-row" key={user.id}>
+                <span><strong>{user.full_name}</strong><small>{user.role} · {user.is_verified ? 'Verified' : 'Not verified'}</small></span>
+                <span>{user.email}<small>{user.phone || 'No phone recorded'}</small></span>
+                <span>Available: {user.balance_kes == null ? 'Not recorded' : formatKes(user.balance_kes)}<small>Pending: {user.pending_kes == null ? 'Not recorded' : formatKes(user.pending_kes)}</small><small>Withdrawn: {user.withdrawn_kes == null ? 'Not recorded' : formatKes(user.withdrawn_kes)}</small></span>
+                <span>{user.posts_count} posts<small>{user.submissions_count} task submissions</small></span>
+                <span>{user.status}</span>
+                <span>{user.role === 'admin' ? 'Protected admin' : (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    disabled={workingId === user.id}
+                    onClick={() => updateStatus(
+                      `/admin/users/${user.id}/status`,
+                      user.id,
+                      user.status === 'active' ? 'suspended' : 'active',
+                      () => setUsers((current) => current.map((item) => item.id === user.id ? { ...item, status: item.status === 'active' ? 'suspended' : 'active' } : item))
+                    )}
+                  >{user.status === 'active' ? 'Suspend' : 'Reactivate'}</button>
+                )}</span>
+              </div>
+            ))}
+            {!dataLoading && !dataError && users.length === 0 && <p>No user or poster accounts are recorded.</p>}
+          </div>
+          <p className="review-disclaimer">Account suspension blocks subsequent sign-in and authenticated activity. Wallet amounts are read-only here.</p>
+        </section>
+      )}
+
+      {section === 'Task posts' && (
       <section className="panel task-post-review">
         <div className="review-section-heading">
           <div><span className="home-overline">Publisher review</span><h2>Submitted task posts</h2></div>
           <span className="review-count">{taskPosts.length} pending</span>
         </div>
-        {(error || actionError || dataError) && <div className="form-error" role="alert">{actionError || error || dataError}</div>}
         {taskPosts.length === 0 ? (
           <p className="empty-review">No task posts are waiting for approval.</p>
         ) : (
@@ -1047,67 +1337,107 @@ function AdminPage({ session, setCurrentPage, onVerifyAdminPassword, taskPosts, 
                   <div><span>Reward budget</span><strong>KSh {Number(post.total_budget_kes).toLocaleString('en-KE')}</strong></div>
                   <div><span>Due date</span><strong>{new Date(post.due_date).toLocaleDateString('en-KE')}</strong></div>
                   <div className="review-actions">
-                    <button type="button" className="btn btn-primary" disabled={workingPostId === post.id} onClick={() => reviewPost(post.id, 'approved')}>
-                      {workingPostId === post.id ? 'Saving…' : 'Approve & publish'}
+                    <button type="button" className="btn btn-primary" disabled={workingId === post.id} onClick={() => reviewPost(post.id, 'approved')}>
+                      {workingId === post.id ? 'Saving…' : 'Approve & publish'}
                     </button>
-                    <button type="button" className="btn btn-secondary" disabled={workingPostId === post.id} onClick={() => reviewPost(post.id, 'rejected')}>Reject</button>
+                    <button type="button" className="btn btn-secondary" disabled={workingId === post.id} onClick={() => reviewPost(post.id, 'rejected')}>Reject</button>
                   </div>
                 </div>
               </article>
             ))}
           </div>
         )}
-        <p className="review-disclaimer">Verify the campaign and reward funding before approval. Publishing makes the task visible in the Tasks catalog.</p>
+        <p className="review-disclaimer">Approval publishes a post, but does not collect or reserve funds. Verify off-platform funding before publishing.</p>
       </section>
+      )}
 
-      {dataLoading && <p>Loading operational records…</p>}
-      <div className="stats-grid">
-        {[
-          ['Users', overview?.usersTotal],
-          ['Pending payouts', overview?.payoutsPending],
-          ['Task submissions pending review', overview?.submissionsPending],
-          ['Active campaigns', overview?.campaignsActive],
-        ].map(([label, value]) => (
-          <div key={label} className="stat-card panel">
-            <label>{label}</label>
-            <strong>{value ?? '—'}</strong>
-          </div>
-        ))}
-      </div>
-
-      <div className="admin-grid">
-        <div className="panel">
-          <h3>Recorded task submissions</h3>
-          <div className="queue-table">
-            <div className="queue-head"><span>User</span><span>Task</span><span>Reward</span><span>Status</span></div>
+      {section === 'Submissions' && (
+        <section className="panel admin-data-panel">
+          <h2>Participant task submissions</h2>
+          <div className="queue-table admin-record-table">
+            <div className="queue-head"><span>Participant</span><span>Task</span><span>Reward</span><span>Proof / notes</span><span>Status</span><span>Review</span></div>
             {submissions.map((item) => (
               <div key={item.id} className="queue-row">
-                <span>{item.user_name || 'User record unavailable'}</span>
+                <span>{item.user_name || 'User record unavailable'}<small>{item.user_email}</small></span>
                 <span>{item.task_title || 'Task record unavailable'}</span>
                 <span>{formatKes(item.amount_kes)}</span>
+                <span className="submission-proof-cell">
+                  {item.notes && <small>{item.notes}</small>}
+                  {item.image_url && <a href={item.image_url} target="_blank" rel="noreferrer">View submitted proof image</a>}
+                  {!item.notes && !item.image_url && <small>{item.proof_type || 'No proof details recorded'}</small>}
+                </span>
                 <span>{item.status}</span>
+                <span>{item.status === 'pending_review' ? <div className="review-actions">
+                  <button type="button" className="btn btn-primary" disabled={workingId === item.id} onClick={() => updateStatus(`/admin/tasks/${item.id}/status`, item.id, 'approved')}>Approve</button>
+                  <button type="button" className="btn btn-secondary" disabled={workingId === item.id} onClick={() => updateStatus(`/admin/tasks/${item.id}/status`, item.id, 'rejected')}>Reject</button>
+                </div> : 'Reviewed'}</span>
               </div>
             ))}
             {!dataLoading && !dataError && submissions.length === 0 && <p>No task submissions are recorded.</p>}
           </div>
-        </div>
+          <p className="review-disclaimer">Approving a submission updates its review status. Automatic wallet credits are not configured, so this action does not change a user's balance.</p>
+        </section>
+      )}
 
-        <div className="panel">
-          <h3>Recorded payout requests</h3>
+      {section === 'Payouts' && (
+        <section className="panel admin-data-panel">
+          <h2>Payout requests</h2>
           <div className="history-list">
             {payouts.map((payout) => (
-              <div key={payout.id} className="history-row">
+              <div key={payout.id} className="history-row admin-payout-row">
                 <div>
-                  <strong>{payout.user_name || 'User record unavailable'} · {payout.method}</strong>
-                  <small>{payout.status} · {formatDate(payout.created_at)}</small>
+                  <strong>{payout.user_name || 'User record unavailable'} · {payout.method} · {formatKes(payout.amount_kes)}</strong>
+                  <small>{payout.destination} · {payout.status} · {formatDate(payout.created_at)}</small>
                 </div>
-                <span>{formatKes(payout.amount_kes)}</span>
+                {['pending', 'pending_approval'].includes(payout.status) ? <div className="review-actions">
+                  <button type="button" className="btn btn-primary" disabled={workingId === payout.id} onClick={() => updateStatus(`/admin/payouts/${payout.id}/status`, payout.id, 'approved')}>Approve for manual payment</button>
+                  <button type="button" className="btn btn-secondary" disabled={workingId === payout.id} onClick={() => updateStatus(`/admin/payouts/${payout.id}/status`, payout.id, 'rejected')}>Reject</button>
+                </div> : null}
               </div>
             ))}
             {!dataLoading && !dataError && payouts.length === 0 && <p>No payout requests are recorded.</p>}
           </div>
-        </div>
-      </div>
+          <p className="review-disclaimer">Approval is a decision only. No transfer occurs and wallet balances are not changed.</p>
+        </section>
+      )}
+
+      {section === 'Task catalog' && (
+        <section className="panel admin-data-panel">
+          <h2>Platform tasks</h2>
+          <div className="history-list">
+            {catalog.map((task) => (
+              <div className="history-row" key={task.id}>
+                <div><strong>{task.title}</strong><small>{task.category} · {formatKes(task.payout_kes)} · {task.active ? 'Active' : 'Inactive'}</small></div>
+                <button type="button" className="btn btn-secondary" disabled={workingId === task.id} onClick={() => runAdminAction(
+                  task.id,
+                  () => apiRequest(`/admin/catalog/${task.id}/status`, { method: 'PATCH', token: session.adminToken, body: JSON.stringify({ active: !task.active }) }),
+                  () => setCatalog((current) => current.map((item) => item.id === task.id ? { ...item, active: !task.active } : item))
+                )}>{task.active ? 'Deactivate' : 'Activate'}</button>
+              </div>
+            ))}
+            {!dataLoading && !dataError && catalog.length === 0 && <p>No platform tasks are configured in the database.</p>}
+          </div>
+        </section>
+      )}
+
+      {section === 'Campaigns' && (
+        <section className="panel admin-data-panel">
+          <h2>Promotional campaigns</h2>
+          <div className="history-list">
+            {campaigns.map((campaign) => (
+              <div className="history-row" key={campaign.id}>
+                <div><strong>{campaign.name}</strong><small>{campaign.kind} · {formatKes(campaign.bonus_kes)} · {campaign.active ? 'Active' : 'Inactive'}</small></div>
+                <button type="button" className="btn btn-secondary" disabled={workingId === campaign.id} onClick={() => runAdminAction(
+                  campaign.id,
+                  () => apiRequest(`/admin/campaigns/${campaign.id}/status`, { method: 'PATCH', token: session.adminToken, body: JSON.stringify({ active: !campaign.active }) }),
+                  () => setCampaigns((current) => current.map((item) => item.id === campaign.id ? { ...item, active: !campaign.active } : item))
+                )}>{campaign.active ? 'Deactivate' : 'Activate'}</button>
+              </div>
+            ))}
+            {!dataLoading && !dataError && campaigns.length === 0 && <p>No campaigns are recorded in the database.</p>}
+          </div>
+        </section>
+      )}
     </div>
   )
 }
@@ -1150,6 +1480,7 @@ function AuthPage({ type, onChangeType, onAuthenticated }) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const isLogin = type === 'login'
+  const isPosterSignup = type === 'posterSignup'
 
   async function handleAuth(event) {
     event.preventDefault()
@@ -1173,10 +1504,13 @@ function AuthPage({ type, onChangeType, onAuthenticated }) {
         }
 
     try {
-      const result = await apiRequest(isLogin ? '/auth/login' : '/auth/signup', {
+      const result = await apiRequest(
+        isLogin ? '/auth/login' : isPosterSignup ? '/auth/poster-signup' : '/auth/signup',
+        {
         method: 'POST',
         body: JSON.stringify(payload),
-      })
+        }
+      )
       onAuthenticated({ token: result.token, user: result.user })
     } catch (authError) {
       setError(authError.message)
@@ -1188,12 +1522,14 @@ function AuthPage({ type, onChangeType, onAuthenticated }) {
   return (
     <div className="page-wrap auth-wrap">
       <div className="panel auth-panel">
-        <div className="eyebrow">{isLogin ? 'Welcome back' : 'Create account'}</div>
-        <h2>{isLogin ? 'Login to your account' : 'Join Hustle254'}</h2>
-        <div className="auth-tabs" role="tablist" aria-label="Account access">
+        <div className="eyebrow">{isLogin ? 'Welcome back' : isPosterSignup ? 'Poster registration' : 'Create account'}</div>
+        <h2>{isLogin ? 'Login to your account' : isPosterSignup ? 'Register your poster account' : 'Join Hustle254'}</h2>
+        <div className={isPosterSignup ? 'auth-tabs poster-auth-tabs' : 'auth-tabs'} role="tablist" aria-label="Account access">
           <button type="button" role="tab" aria-selected={isLogin} className={isLogin ? 'auth-tab active' : 'auth-tab'} onClick={() => onChangeType('Login')}>Log in</button>
-          <button type="button" role="tab" aria-selected={!isLogin} className={!isLogin ? 'auth-tab active' : 'auth-tab'} onClick={() => onChangeType('Sign up')}>Create account</button>
+          <button type="button" role="tab" aria-selected={type === 'signup'} className={type === 'signup' ? 'auth-tab active' : 'auth-tab'} onClick={() => onChangeType('Sign up')}>Create account</button>
+          <button type="button" role="tab" aria-selected={isPosterSignup} className={isPosterSignup ? 'auth-tab active' : 'auth-tab'} onClick={() => onChangeType('Poster signup')}>Register as poster</button>
         </div>
+        {isPosterSignup && <p className="auth-intro">Poster accounts use separate login details and can publish and track task posts. Payments are not collected until Step 5.</p>}
 
         {error && <div className="form-error" role="alert">{error}</div>}
         <form className="form-grid" onSubmit={handleAuth}>
@@ -1234,7 +1570,7 @@ function AuthPage({ type, onChangeType, onAuthenticated }) {
             </label>
           )}
           <button type="submit" className="btn btn-primary btn-block" disabled={submitting}>
-            {submitting ? 'Please wait…' : isLogin ? 'Login' : 'Create account'}
+            {submitting ? 'Please wait…' : isLogin ? 'Login' : isPosterSignup ? 'Create poster account' : 'Create account'}
           </button>
         </form>
       </div>

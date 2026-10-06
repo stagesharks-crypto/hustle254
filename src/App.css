@@ -2672,3 +2672,150 @@ button:focus-visible {
     gap: 8px;
   }
 }
+
+.admin-section-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 18px 0;
+  padding-bottom: 8px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.admin-section-tab {
+  flex: 0 0 auto;
+  padding: 9px 13px;
+  border: 1px solid rgba(225, 239, 228, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.025);
+  color: #b9c7bd;
+  cursor: pointer;
+}
+
+.admin-section-tab:hover,
+.admin-section-tab.active {
+  border-color: rgba(197, 237, 111, 0.35);
+  background: rgba(197, 237, 111, 0.1);
+  color: #c5ed6f;
+}
+
+.admin-overview-note,
+.admin-data-panel,
+.poster-post-list {
+  margin-bottom: 18px;
+}
+
+.admin-data-panel h2,
+.poster-account-panel h2,
+.poster-billing-panel h2 {
+  margin: 0 0 16px;
+  color: #eff5e9;
+  font-size: 1.2rem;
+}
+
+.admin-record-table .queue-head,
+.admin-record-table .queue-row {
+  grid-template-columns: 1.15fr 1.35fr 1.25fr 1fr 0.75fr 0.9fr;
+  min-width: 1040px;
+  align-items: start;
+}
+
+.admin-record-table .queue-row > span,
+.admin-record-table .queue-head > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.admin-record-table .queue-row small {
+  display: block;
+  margin-top: 5px;
+  color: #91a198;
+  font-size: 0.72rem;
+}
+
+.admin-record-table .btn {
+  padding: 0.62rem 0.75rem;
+  font-size: 0.72rem;
+}
+
+.submission-proof-cell {
+  display: grid;
+  gap: 7px;
+}
+
+.submission-proof-cell a {
+  color: #c5ed6f;
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.submission-proof-cell a:hover {
+  text-decoration: underline;
+}
+
+.poster-post-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 0;
+  border-bottom: 1px solid rgba(225, 239, 228, 0.09);
+}
+
+.poster-post-row:last-child {
+  border-bottom: 0;
+}
+
+.poster-post-row h3 {
+  margin: 10px 0 5px;
+}
+
+.poster-post-row p,
+.poster-billing-panel p {
+  color: #aebcb3;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.poster-post-metrics {
+  display: grid;
+  gap: 7px;
+  min-width: 190px;
+  color: #c4d0c8;
+  font-size: 0.78rem;
+}
+
+.poster-post-metrics strong {
+  color: #c5ed6f;
+}
+
+.poster-billing-panel .status-badge {
+  margin: 0 0 10px;
+}
+
+.status-pending_review {
+  color: #f0d77c;
+}
+
+.status-approved {
+  color: #8de5a8;
+}
+
+.status-rejected {
+  color: #ffb1a9;
+}
+
+@media (max-width: 680px) {
+  .poster-post-row {
+    flex-direction: column;
+  }
+
+  .poster-post-metrics {
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .poster-post-metrics strong {
+    grid-column: 1 / -1;
+  }
+}
