@@ -2805,6 +2805,125 @@ button:focus-visible {
   color: #ffb1a9;
 }
 
+.deposit-instructions {
+  margin-top: 12px;
+}
+
+.deposit-instructions .method-row {
+  align-items: flex-start;
+}
+
+.wallet-action-panel,
+.wallet-transactions-panel {
+  margin-bottom: 18px;
+}
+
+.wallet-action-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.wallet-transaction-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.wallet-transaction-form label {
+  display: grid;
+  gap: 8px;
+  color: #dce6de;
+  font-size: 0.84rem;
+  font-weight: 650;
+}
+
+.wallet-transaction-form input,
+.wallet-transaction-form select {
+  width: 100%;
+  min-width: 0;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid rgba(225, 239, 228, 0.12);
+  border-radius: 10px;
+  background: #0d1614;
+  color: #edf3eb;
+}
+
+.wallet-transaction-form select option {
+  background: #111b19;
+  color: #edf3eb;
+}
+
+.wallet-form-wide {
+  grid-column: 1 / -1;
+}
+
+.wallet-form-note,
+.wallet-review-intro {
+  color: #9eafa5;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+.wallet-transaction-row {
+  align-items: flex-start;
+}
+
+.wallet-review-panel .history-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.wallet-review-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px;
+  border: 1px solid rgba(225, 239, 228, 0.09);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.wallet-review-details {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.wallet-review-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: #edf4eb;
+}
+
+.wallet-review-details > small {
+  color: #91a198;
+  font-size: 0.74rem;
+  overflow-wrap: anywhere;
+}
+
+.wallet-review-facts {
+  display: grid;
+  gap: 7px;
+  margin: 6px 0;
+  color: #9eafa5;
+  font-size: 0.78rem;
+}
+
+.wallet-review-facts strong {
+  color: #dce6de;
+  overflow-wrap: anywhere;
+}
+
+.wallet-review-row > .review-actions {
+  flex: 0 0 auto;
+  margin-top: 0;
+}
+
 @media (max-width: 680px) {
   .poster-post-row {
     flex-direction: column;
@@ -2817,5 +2936,17 @@ button:focus-visible {
 
   .poster-post-metrics strong {
     grid-column: 1 / -1;
+  }
+
+  .wallet-transaction-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .wallet-form-wide {
+    grid-column: auto;
+  }
+
+  .wallet-review-row {
+    flex-direction: column;
   }
 }

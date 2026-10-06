@@ -2,6 +2,28 @@ import { useEffect, useRef, useState } from 'react'
 import './App.css'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
+const depositPaymentDetails = [
+  { method: 'M-Pesa direct', detail: 'Send to 0740582544.' },
+  { method: 'M-Pesa Till', detail: 'Send to Till 4962757.' },
+  { method: 'PayPal', detail: 'Send to shadrackechesa40@gmail.com.' },
+  { method: 'USDT BEP20', detail: 'Send to 0x9e48fb73a5e51469897faabe06900202d9921913. Use the BEP20 network only.' },
+]
+const walletMethodLabels = {
+  mpesa: 'M-Pesa',
+  mpesa_till: 'M-Pesa Till',
+  paypal: 'PayPal',
+  usdt_bep20: 'USDT BEP20',
+  crypto: 'Cryptocurrency',
+  till: 'Till',
+  bank: 'Bank transfer',
+}
+const withdrawalMethods = [
+  { value: 'mpesa', label: 'M-Pesa' },
+  { value: 'crypto', label: 'Cryptocurrency (USDT BEP20)' },
+  { value: 'paypal', label: 'PayPal' },
+  { value: 'till', label: 'Till' },
+  { value: 'bank', label: 'Bank transfer' },
+]
 
 function isValidEmailAddress(value) {
   if (typeof value !== 'string' || value.length > 254) return false
@@ -79,7 +101,7 @@ const howSteps = [
   { title: 'Create your account', text: 'Sign up quickly with your phone number, profile basics, and KYC-friendly verification.' },
   { title: 'Complete trusted tasks', text: 'Take surveys, social tasks, app trials, and offer missions with transparent reward values.' },
   { title: 'Submit proof securely', text: 'Use live-photo validation and admin review to prevent fake or duplicate submissions.' },
-  { title: 'Withdraw in your preferred method', text: 'Cash out via M-Pesa, Airtel Money, bank transfer, or USDT on BEP20.' },
+  { title: 'Withdraw in your preferred method', text: 'Request a manual payout to M-Pesa, PayPal, USDT, Till, or a bank account.' },
 ]
 
 const featureCards = [
@@ -213,6 +235,12 @@ function App() {
     setNavigationRoot(landingPage)
   }
 
+  function handleAdminAuthenticated(nextSession) {
+    localStorage.setItem('hustle254-session', JSON.stringify(nextSession))
+    setSession(nextSession)
+    setNavigationRoot('Admin')
+  }
+
   async function handleAdminPassword(password) {
     const result = await apiRequest('/admin/access', {
       method: 'POST',
@@ -233,7 +261,7 @@ function App() {
   const effectivePage = session && ['Login', 'Sign up'].includes(currentPage) ? 'Dashboard' : currentPage
 
   const renderPage = () => {
-    if (!session && memberPages.has(effectivePage)) {
+    if (!session && memberPages.has(effectivePage) && effectivePage !== 'Admin') {
       return <SignInRequiredPage setCurrentPage={setCurrentPage} />
     }
 
@@ -263,6 +291,7 @@ function App() {
           <AdminPage
             session={session}
             setCurrentPage={setCurrentPage}
+            onAuthenticated={handleAdminAuthenticated}
             onVerifyAdminPassword={handleAdminPassword}
             taskPosts={taskPosts}
             error={taskPostError}
@@ -323,6 +352,7 @@ function App() {
             <span className="side-nav-label account-label">Poster account</span>
             {[
               { label: 'Poster', icon: 'P', title: 'Poster account' },
+              { label: 'Wallet', icon: 'W', title: 'Wallet' },
               { label: 'Post a task', icon: '+', title: 'Post a task' },
             ].map((item) => (
               <button
@@ -398,6 +428,7 @@ function App() {
             <button type="button" onClick={() => setCurrentPage('Home')}>Home</button>
             <button type="button" onClick={() => setCurrentPage('Trust')}>Trust</button>
             <button type="button" onClick={() => setCurrentPage('Legal')}>Legal</button>
+            <button type="button" onClick={() => setCurrentPage('Admin')}>Admin portal</button>
           </div>
         </footer>
       </div>
@@ -457,7 +488,8 @@ function HomePage({ setCurrentPage, session }) {
           <div className="welcome-payments">
             <span>Withdraw with</span>
             <strong>M-Pesa</strong>
-            <strong>Airtel Money</strong>
+            <strong>PayPal</strong>
+            <strong>Till</strong>
             <strong>Bank</strong>
             <strong>USDT</strong>
           </div>
@@ -886,9 +918,10 @@ function PosterPage({ session, setCurrentPage }) {
 
         <section className="panel poster-billing-panel">
           <h2>Balance and billing</h2>
-          <p className="status-badge">Payments setup planned for Step 5</p>
-          <p>{data?.billing.message || 'Poster balances and deposits are not available yet.'}</p>
-          <p>Requested task budgets are estimates only. Submitting a task does not charge you, collect funds, or escrow rewards.</p>
+          <p className="status-badge">Manual payment review</p>
+          <p>Your current available balance is shown in Wallet. Deposits are added after an admin verifies your transaction reference; withdrawals are also reviewed and processed manually.</p>
+          <p>Task post budget estimates do not automatically reserve funds or escrow rewards.</p>
+          <button type="button" className="btn btn-secondary" onClick={() => setCurrentPage('Wallet')}>Open poster wallet</button>
         </section>
       </div>
 
@@ -921,55 +954,173 @@ function PosterPage({ session, setCurrentPage }) {
 
 function WalletPage({ session }) {
   const [dashboard, setDashboard] = useState(null)
+  const [transactions, setTransactions] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [mode, setMode] = useState(session.user.role === 'poster' ? 'deposit' : 'withdraw')
+  const [paymentMethod, setPaymentMethod] = useState('mpesa')
+  const [amountKes, setAmountKes] = useState('')
+  const [destination, setDestination] = useState('')
+  const [transactionReference, setTransactionReference] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [success, setSuccess] = useState('')
+  const isPoster = session.user.role === 'poster'
 
   useEffect(() => {
-    apiRequest('/user/dashboard', { token: session.token })
-      .then(setDashboard)
-      .catch((requestError) => setError(requestError.message))
-      .finally(() => setLoading(false))
+    let active = true
+    async function refreshWallet() {
+      try {
+        const [walletData, transactionData] = await Promise.all([
+          apiRequest('/user/dashboard', { token: session.token }),
+          apiRequest('/wallet/transactions', { token: session.token }),
+        ])
+        if (!active) return
+        setDashboard(walletData)
+        setTransactions(transactionData.transactions)
+        setError('')
+      } catch (requestError) {
+        if (active) setError(requestError.message)
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    refreshWallet()
+    const refreshTimer = window.setInterval(refreshWallet, 15000)
+    return () => { active = false; window.clearInterval(refreshTimer) }
   }, [session.token])
+
+  async function submitWalletRequest(event) {
+    event.preventDefault()
+    setSubmitting(true)
+    setError('')
+    setSuccess('')
+    try {
+      const deposit = mode === 'deposit'
+      const result = await apiRequest(deposit ? '/wallet/deposits' : '/wallet/withdrawals', {
+        method: 'POST',
+        token: session.token,
+        body: JSON.stringify(deposit
+          ? { amountKes: Number(amountKes), paymentMethod, transactionReference }
+          : { amountKes: Number(amountKes), paymentMethod, destination }),
+      })
+      setSuccess(result.message)
+      setAmountKes('')
+      setDestination('')
+      setTransactionReference('')
+      const [walletData, transactionData] = await Promise.all([
+        apiRequest('/user/dashboard', { token: session.token }),
+        apiRequest('/wallet/transactions', { token: session.token }),
+      ])
+      setDashboard(walletData)
+      setTransactions(transactionData.transactions)
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const destinationLabel = {
+    mpesa: 'M-Pesa phone number',
+    crypto: 'USDT BEP20 wallet address',
+    paypal: 'PayPal email address',
+    till: 'Till number and business details',
+    bank: 'Bank name, account name, and account number',
+  }[paymentMethod]
 
   return (
     <div className="page-wrap">
       <PageHeader
         eyebrow="Wallet"
-        title="View your stored balances and account activity."
-        subtitle="Wallet amounts are taken from your account record; activity is shown only when it has been recorded."
+        title={isPoster ? 'Deposit funds and manage your poster balance.' : 'Withdraw your available balance.'}
+        subtitle="Transactions are recorded against your wallet. Deposits and withdrawals are manually reviewed by an administrator."
       />
 
       {error && <div className="form-error" role="alert">{error}</div>}
+      {success && <div className="submission-success" role="status">{success}</div>}
       {loading && <p>Loading wallet from your account…</p>}
       <div className="wallet-grid">
         <div className="panel wallet-summary">
           <span>Available balance</span>
           <strong>{dashboard?.wallet ? formatKes(dashboard.wallet.balance_kes) : 'Not recorded'}</strong>
-          <small>Pending: {dashboard?.wallet ? formatKes(dashboard.wallet.pending_kes) : 'Not recorded'}</small>
+          <small>Pending / reserved balance: {dashboard?.wallet ? formatKes(dashboard.wallet.pending_kes) : 'Not recorded'}</small>
           <small>Withdrawn: {dashboard?.wallet ? formatKes(dashboard.wallet.withdrawn_kes) : 'Not recorded'}</small>
         </div>
 
         <div className="panel payout-methods">
-          <h3>Wallet record</h3>
-          <p>Balances shown here are read from the wallet record linked to your account. No balance is estimated from task activity.</p>
+          <h3>{isPoster ? 'Poster deposits' : 'Wallet controls'}</h3>
+          {isPoster
+            ? <p>Use the official payment details below, then submit the exact transfer reference and KSh-equivalent amount. Funds are added only after admin verification.</p>
+            : <p>Choose a withdrawal method and destination. The amount is reserved while your request is reviewed. Rejected requests return to your available balance.</p>}
+          {isPoster && <div className="deposit-instructions">
+            {depositPaymentDetails.map((item) => (
+              <div className="method-row" key={item.method}>
+                <div><strong>{item.method}</strong><small>{item.detail}</small></div>
+              </div>
+            ))}
+          </div>}
         </div>
       </div>
 
-      <div className="panel">
-        <h3>Recent recorded activity</h3>
+      <section className="panel wallet-action-panel">
+        <div className="wallet-action-tabs" role="tablist" aria-label="Wallet actions">
+          {isPoster && <button type="button" role="tab" aria-selected={mode === 'deposit'} className={mode === 'deposit' ? 'admin-section-tab active' : 'admin-section-tab'} onClick={() => { setMode('deposit'); setSuccess(''); setError('') }}>Deposit funds</button>}
+          <button type="button" role="tab" aria-selected={mode === 'withdraw'} className={mode === 'withdraw' ? 'admin-section-tab active' : 'admin-section-tab'} onClick={() => { setMode('withdraw'); setSuccess(''); setError('') }}>Withdraw</button>
+        </div>
+        <form className="wallet-transaction-form" onSubmit={submitWalletRequest}>
+          <label>
+            Amount (KSh)
+            <input type="number" min="1" max="10000000" step="0.01" inputMode="decimal" value={amountKes} onChange={(event) => setAmountKes(event.target.value)} required />
+          </label>
+          {mode === 'deposit' ? <>
+            <label>
+              Send using
+              <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}>
+                <option value="mpesa">M-Pesa direct</option>
+                <option value="mpesa_till">M-Pesa Till</option>
+                <option value="paypal">PayPal</option>
+                <option value="usdt_bep20">USDT BEP20</option>
+              </select>
+            </label>
+            <label className="wallet-form-wide">
+              Transfer transaction code / blockchain hash
+              <input value={transactionReference} onChange={(event) => setTransactionReference(event.target.value)} minLength="3" maxLength="160" required placeholder="Enter the exact reference from your transfer" />
+            </label>
+            <p className="wallet-form-note wallet-form-wide">Submitting the code creates a pending review request. Do not send funds to any address other than the details shown above.</p>
+          </> : <>
+            <label>
+              Withdraw to
+              <select value={paymentMethod} onChange={(event) => { setPaymentMethod(event.target.value); setDestination('') }}>
+                {withdrawalMethods.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}
+              </select>
+            </label>
+            <label className="wallet-form-wide">
+              {destinationLabel}
+              <input value={destination} onChange={(event) => setDestination(event.target.value)} maxLength="300" required placeholder="Enter the destination details for your payout" />
+            </label>
+            <p className="wallet-form-note wallet-form-wide">Your available balance decreases when you submit. After the admin manually sends the payout, approval settles it; rejection returns the reserved amount.</p>
+          </>}
+          <button type="submit" className="btn btn-primary wallet-form-wide" disabled={submitting}>
+            {submitting ? 'Submitting…' : mode === 'deposit' ? 'Submit deposit for verification' : 'Send withdrawal request to admin'}
+          </button>
+        </form>
+      </section>
+
+      <section className="panel wallet-transactions-panel">
+        <h3>Wallet transaction history</h3>
         <div className="history-list">
-          {dashboard?.recentActivity?.map((item) => (
-            <div key={`${item.activity_type}-${item.created_at}-${item.description}`} className="history-row">
+          {transactions.map((item) => (
+            <div key={item.id} className="history-row wallet-transaction-row">
               <div>
-                <strong>{item.activity_type === 'payout' ? `Payout: ${item.description}` : `Task: ${item.description}`}</strong>
+                <strong>{item.transaction_type === 'deposit' ? 'Deposit' : 'Withdrawal'} · {item.transaction_type === 'deposit' ? '+' : '-'}{formatKes(item.amount_kes)}</strong>
+                <small>{walletMethodLabels[item.payment_method] || item.description || 'Wallet activity'}{item.transaction_reference ? ` · Reference ${item.transaction_reference}` : ''}</small>
                 <small>{item.status} · {formatDate(item.created_at)}</small>
               </div>
-              {item.amount_kes !== null && item.amount_kes !== undefined && <span>{formatKes(item.amount_kes)}</span>}
             </div>
           ))}
-          {!loading && !error && dashboard?.recentActivity?.length === 0 && <p>No account activity is recorded yet.</p>}
+          {!loading && !error && transactions.length === 0 && <p>No wallet transactions have been recorded yet.</p>}
         </div>
-      </div>
+      </section>
     </div>
   )
 }
@@ -1075,7 +1226,11 @@ function DashboardPage({ session }) {
             {dashboard?.recentActivity?.map((activity) => (
               <div key={`${activity.activity_type}-${activity.created_at}-${activity.description}`} className="history-row">
                 <div>
-                  <strong>{activity.activity_type === 'payout' ? `Payout: ${activity.description}` : `Task: ${activity.description}`}</strong>
+                  <strong>{activity.activity_type === 'payout'
+                    ? `Payout: ${activity.description}`
+                    : ['deposit', 'withdrawal'].includes(activity.activity_type)
+                      ? `${activity.activity_type === 'deposit' ? 'Deposit' : 'Withdrawal'}: ${activity.description}`
+                      : `Task: ${activity.description}`}</strong>
                   <small>{activity.status} · {formatDate(activity.created_at)}</small>
                 </div>
                 {activity.amount_kes !== null && activity.amount_kes !== undefined && <span>{formatKes(activity.amount_kes)}</span>}
@@ -1088,13 +1243,118 @@ function DashboardPage({ session }) {
         <div className="panel">
           <h3>Account totals</h3>
           <div className="history-list">
-            <div className="history-row"><strong>Pending wallet balance</strong><span>{wallet ? formatKes(wallet.pending_kes) : 'Not recorded'}</span></div>
+            <div className="history-row"><strong>Pending / reserved wallet balance</strong><span>{wallet ? formatKes(wallet.pending_kes) : 'Not recorded'}</span></div>
             <div className="history-row"><strong>Withdrawn total</strong><span>{wallet ? formatKes(wallet.withdrawn_kes) : 'Not recorded'}</span></div>
             <div className="history-row"><strong>Rejected submissions</strong><span>{stats?.rejected_submissions ?? '—'}</span></div>
             <div className="history-row"><strong>Recorded referral commissions</strong><span>{stats ? formatKes(stats.commission_kes) : '—'}</span></div>
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+function AdminPortalEntry({ onAuthenticated, session }) {
+  const [setupAvailable, setSetupAvailable] = useState(false)
+  const [setupChecked, setSetupChecked] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    apiRequest('/admin/setup-status')
+      .then(({ available }) => {
+        if (active) setSetupAvailable(available)
+      })
+      .catch((requestError) => {
+        if (active) setError(requestError.message)
+      })
+      .finally(() => {
+        if (active) setSetupChecked(true)
+      })
+    return () => { active = false }
+  }, [])
+
+  async function register(event) {
+    event.preventDefault()
+    const values = Object.fromEntries(new FormData(event.currentTarget))
+    setSubmitting(true)
+    setError('')
+    try {
+      const result = await apiRequest('/admin/register', {
+        method: 'POST',
+        body: JSON.stringify(values),
+      })
+      onAuthenticated(result)
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function signIn(event) {
+    event.preventDefault()
+    const values = Object.fromEntries(new FormData(event.currentTarget))
+    setSubmitting(true)
+    setError('')
+    try {
+      const result = await apiRequest('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ identifier: values.email, password: values.adminPassword }),
+      })
+      if (result.user.role !== 'admin') {
+        throw new Error('This email is not the registered admin account.')
+      }
+      const { adminToken } = await apiRequest('/admin/access', {
+        method: 'POST',
+        token: result.token,
+        body: JSON.stringify({ password: values.adminPassword }),
+      })
+      onAuthenticated({ ...result, adminToken })
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="page-wrap">
+      <PageHeader
+        eyebrow="Secure admin portal"
+        title="Administrator access."
+        subtitle="Only one admin account can be registered. Use the private admin password configured on the API."
+      />
+      {error && <div className="form-error" role="alert">{error}</div>}
+      {!setupChecked && <p>Checking admin setup…</p>}
+      {setupChecked && setupAvailable && (
+        <form className="panel auth-panel admin-password-gate" onSubmit={register}>
+          <div className="eyebrow">One-time setup</div>
+          <h2>Register the administrator.</h2>
+          <p className="auth-intro">This form is available only until the first admin account is created. The admin password is also the account sign-in password.</p>
+          <label>Full name<input name="fullName" autoComplete="name" required maxLength="120" /></label>
+          <label>Email address<input name="email" type="email" autoComplete="email" required maxLength="254" /></label>
+          <label>Phone number<input name="phone" type="tel" autoComplete="tel" required maxLength="40" /></label>
+          <label className="admin-password-label">Admin password<input name="adminPassword" type="password" autoComplete="new-password" required /></label>
+          <button type="submit" className="btn btn-primary btn-block" disabled={submitting}>
+            {submitting ? 'Registering…' : 'Register the only admin account'}
+          </button>
+        </form>
+      )}
+      {setupChecked && (
+        <form className="panel auth-panel admin-password-gate" onSubmit={signIn}>
+          <div className="eyebrow">Administrator sign-in</div>
+          <h2>Sign in to the admin portal.</h2>
+          <p className="auth-intro">Use the email registered for the administrator and the same private admin password.</p>
+          <label>Email address<input name="email" type="email" autoComplete="username" required maxLength="254" /></label>
+          <label className="admin-password-label">Admin password<input name="adminPassword" type="password" autoComplete="current-password" required /></label>
+          <button type="submit" className="btn btn-primary btn-block" disabled={submitting}>
+            {submitting ? 'Signing in…' : 'Sign in as administrator'}
+          </button>
+          {session && <p className="auth-intro">You are currently signed in to a non-admin account. This will switch to the administrator account after successful sign-in.</p>}
+        </form>
+      )}
     </div>
   )
 }
@@ -1137,12 +1397,13 @@ function AdminAccessGate({ onVerifyAdminPassword }) {
   )
 }
 
-function AdminPage({ session, setCurrentPage, onVerifyAdminPassword, taskPosts, error, onModerateTaskPost }) {
+function AdminPage({ session, onAuthenticated, onVerifyAdminPassword, taskPosts, error, onModerateTaskPost }) {
   const [workingId, setWorkingId] = useState('')
   const [actionError, setActionError] = useState('')
   const [overview, setOverview] = useState(null)
   const [submissions, setSubmissions] = useState([])
   const [payouts, setPayouts] = useState([])
+  const [walletTransactions, setWalletTransactions] = useState([])
   const [users, setUsers] = useState([])
   const [catalog, setCatalog] = useState([])
   const [campaigns, setCampaigns] = useState([])
@@ -1158,15 +1419,17 @@ function AdminPage({ session, setCurrentPage, onVerifyAdminPassword, taskPosts, 
       apiRequest('/admin/overview', { token: session.adminToken }),
       apiRequest('/admin/tasks', { token: session.adminToken }),
       apiRequest('/admin/payouts', { token: session.adminToken }),
+      apiRequest('/admin/wallet-transactions', { token: session.adminToken }),
       apiRequest('/admin/users', { token: session.adminToken }),
       apiRequest('/admin/catalog', { token: session.adminToken }),
       apiRequest('/admin/campaigns', { token: session.adminToken }),
     ])
-      .then(([nextOverview, taskResult, payoutResult, userResult, catalogResult, campaignResult]) => {
+      .then(([nextOverview, taskResult, payoutResult, walletTransactionResult, userResult, catalogResult, campaignResult]) => {
         if (!active) return
         setOverview(nextOverview)
         setSubmissions(taskResult.tasks)
         setPayouts(payoutResult.payouts)
+        setWalletTransactions(walletTransactionResult.transactions)
         setUsers(userResult.users)
         setCatalog(catalogResult.tasks)
         setCampaigns(campaignResult.campaigns)
@@ -1181,28 +1444,16 @@ function AdminPage({ session, setCurrentPage, onVerifyAdminPassword, taskPosts, 
     return () => { active = false }
   }, [session?.adminToken, taskPosts.length, refreshVersion])
 
-  if (!session) {
-    return (
-      <div className="page-wrap">
-        <PageHeader
-          eyebrow="Restricted area"
-          title="Sign in to continue."
-          subtitle="Sign in before entering the admin password to open protected moderation and payout tools."
-        />
-        <div className="panel admin-access-panel">
-          <p>Admin services require both a signed-in account and the admin password.</p>
-          <button type="button" className="btn btn-primary" onClick={() => setCurrentPage('Login')}>Sign in</button>
-        </div>
-      </div>
-    )
-  }
+  useEffect(() => {
+    if (!session?.adminToken) return undefined
+    const refreshTimer = window.setInterval(() => {
+      setRefreshVersion((version) => version + 1)
+    }, 15000)
+    return () => window.clearInterval(refreshTimer)
+  }, [session?.adminToken])
 
-  if (session.user.role !== 'admin') {
-    return (
-      <div className="page-wrap">
-        <PageHeader eyebrow="Restricted area" title="Admin account required." subtitle="This page is reserved for authorized admin accounts." />
-      </div>
-    )
+  if (!session || session.user.role !== 'admin') {
+    return <AdminPortalEntry onAuthenticated={onAuthenticated} session={session} />
   }
 
   if (!session.adminToken) return <AdminAccessGate onVerifyAdminPassword={onVerifyAdminPassword} />
@@ -1248,7 +1499,7 @@ function AdminPage({ session, setCurrentPage, onVerifyAdminPassword, taskPosts, 
       {(error || actionError || dataError) && <div className="form-error" role="alert">{actionError || error || dataError}</div>}
       {dataLoading && <p>Loading operational records…</p>}
       <nav className="admin-section-tabs" aria-label="Admin management sections">
-        {['Overview', 'Users & posters', 'Task posts', 'Submissions', 'Payouts', 'Task catalog', 'Campaigns'].map((item) => (
+        {['Overview', 'Users & posters', 'Task posts', 'Submissions', 'Wallet deposits', 'Withdrawals', 'Legacy payouts', 'Task catalog', 'Campaigns'].map((item) => (
           <button type="button" key={item} className={section === item ? 'admin-section-tab active' : 'admin-section-tab'} aria-current={section === item ? 'page' : undefined} onClick={() => setSection(item)}>
             {item}
           </button>
@@ -1259,7 +1510,9 @@ function AdminPage({ session, setCurrentPage, onVerifyAdminPassword, taskPosts, 
         {[
           ['Users', overview?.usersTotal],
           ['Posters', overview?.postersTotal],
-          ['Pending payouts', overview?.payoutsPending],
+          ['Deposits to verify', overview?.depositsPending],
+          ['Withdrawals to process', overview?.withdrawalsPending],
+          ['Legacy pending payouts', overview?.payoutsPending],
           ['Submissions awaiting review', overview?.submissionsPending],
           ['Task posts awaiting review', overview?.taskPostsPending],
           ['Active campaigns', overview?.campaignsActive],
@@ -1274,7 +1527,7 @@ function AdminPage({ session, setCurrentPage, onVerifyAdminPassword, taskPosts, 
       {section === 'Overview' && (
         <div className="panel admin-overview-note">
           <h2>Platform operations</h2>
-          <p>Use the sections above to review account details, publisher submissions, participant proofs, payout decisions, active tasks, and campaigns. Approving a payout only marks it for manual processing; this dashboard does not transfer money.</p>
+          <p>Use the sections above to review accounts, verify poster deposits, process user and poster withdrawal requests, moderate tasks, and manage campaigns. Withdrawals are transferred manually before the admin settles the request; the website does not send payments.</p>
         </div>
       )}
 
@@ -1375,13 +1628,13 @@ function AdminPage({ session, setCurrentPage, onVerifyAdminPassword, taskPosts, 
             ))}
             {!dataLoading && !dataError && submissions.length === 0 && <p>No task submissions are recorded.</p>}
           </div>
-          <p className="review-disclaimer">Approving a submission updates its review status. Automatic wallet credits are not configured, so this action does not change a user's balance.</p>
+          <p className="review-disclaimer">Approving or rejecting a task proof updates its review status only. Task reward funding and automatic wallet credits are not enabled; only verified poster deposits currently add funds.</p>
         </section>
       )}
 
-      {section === 'Payouts' && (
+      {section === 'Legacy payouts' && (
         <section className="panel admin-data-panel">
-          <h2>Payout requests</h2>
+          <h2>Legacy payout records</h2>
           <div className="history-list">
             {payouts.map((payout) => (
               <div key={payout.id} className="history-row admin-payout-row">
@@ -1389,15 +1642,65 @@ function AdminPage({ session, setCurrentPage, onVerifyAdminPassword, taskPosts, 
                   <strong>{payout.user_name || 'User record unavailable'} · {payout.method} · {formatKes(payout.amount_kes)}</strong>
                   <small>{payout.destination} · {payout.status} · {formatDate(payout.created_at)}</small>
                 </div>
-                {['pending', 'pending_approval'].includes(payout.status) ? <div className="review-actions">
-                  <button type="button" className="btn btn-primary" disabled={workingId === payout.id} onClick={() => updateStatus(`/admin/payouts/${payout.id}/status`, payout.id, 'approved')}>Approve for manual payment</button>
-                  <button type="button" className="btn btn-secondary" disabled={workingId === payout.id} onClick={() => updateStatus(`/admin/payouts/${payout.id}/status`, payout.id, 'rejected')}>Reject</button>
-                </div> : null}
               </div>
             ))}
             {!dataLoading && !dataError && payouts.length === 0 && <p>No payout requests are recorded.</p>}
           </div>
-          <p className="review-disclaimer">Approval is a decision only. No transfer occurs and wallet balances are not changed.</p>
+          <p className="review-disclaimer">These are records from the retired payout workflow and do not change wallet balances. New requests appear in Withdrawals and reserve funds before review.</p>
+        </section>
+      )}
+
+      {['Wallet deposits', 'Withdrawals'].includes(section) && (
+        <section className="panel admin-data-panel wallet-review-panel">
+          <h2>{section === 'Wallet deposits' ? 'Poster deposit verification' : 'Withdrawal requests'}</h2>
+          <p className="wallet-review-intro">
+            {section === 'Wallet deposits'
+              ? 'Match the submitted payment code against the actual payment before approving. Approval credits the poster wallet immediately.'
+              : 'Review the destination and process the manual transfer before approving. Approval settles the reserved balance; rejection returns it to available balance.'}
+          </p>
+          <div className="history-list">
+            {walletTransactions
+              .filter((transaction) => transaction.transaction_type === (section === 'Wallet deposits' ? 'deposit' : 'withdrawal'))
+              .map((transaction) => (
+                <article className="wallet-review-row" key={transaction.id}>
+                  <div className="wallet-review-details">
+                    <div className="wallet-review-heading">
+                      <strong>{transaction.user_name || 'Account unavailable'}</strong>
+                      <span className={`status-badge status-${transaction.status}`}>{transaction.status.replace('_', ' ')}</span>
+                    </div>
+                    <small>{transaction.user_email} · {transaction.user_role} · {formatDate(transaction.created_at)}</small>
+                    <div className="wallet-review-facts">
+                      <span>Amount <strong>{formatKes(transaction.amount_kes)}</strong></span>
+                      <span>Method <strong>{walletMethodLabels[transaction.payment_method] || transaction.payment_method || 'Not recorded'}</strong></span>
+                      {transaction.transaction_type === 'deposit'
+                        ? <span>Transfer code / hash <strong>{transaction.transaction_reference || 'Not provided'}</strong></span>
+                        : <span>Pay to <strong>{transaction.destination || 'Not provided'}</strong></span>}
+                    </div>
+                    {transaction.description && <small>{transaction.description}</small>}
+                    {transaction.reviewed_at && <small>Reviewed {formatDate(transaction.reviewed_at)}</small>}
+                  </div>
+                  {transaction.status === 'pending_review' && (
+                    <div className="review-actions">
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        disabled={workingId === transaction.id}
+                        onClick={() => updateStatus(`/admin/wallet-transactions/${transaction.id}/status`, transaction.id, 'approved')}
+                      >{section === 'Wallet deposits' ? 'Verify & credit wallet' : 'Confirm paid & settle'}</button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        disabled={workingId === transaction.id}
+                        onClick={() => updateStatus(`/admin/wallet-transactions/${transaction.id}/status`, transaction.id, 'rejected')}
+                      >Reject</button>
+                    </div>
+                  )}
+                </article>
+              ))}
+            {!dataLoading && !dataError && !walletTransactions.some((transaction) => (
+              transaction.transaction_type === (section === 'Wallet deposits' ? 'deposit' : 'withdrawal')
+            )) && <p>No {section === 'Wallet deposits' ? 'deposit' : 'withdrawal'} transactions are recorded.</p>}
+          </div>
         </section>
       )}
 
@@ -1529,7 +1832,7 @@ function AuthPage({ type, onChangeType, onAuthenticated }) {
           <button type="button" role="tab" aria-selected={type === 'signup'} className={type === 'signup' ? 'auth-tab active' : 'auth-tab'} onClick={() => onChangeType('Sign up')}>Create account</button>
           <button type="button" role="tab" aria-selected={isPosterSignup} className={isPosterSignup ? 'auth-tab active' : 'auth-tab'} onClick={() => onChangeType('Poster signup')}>Register as poster</button>
         </div>
-        {isPosterSignup && <p className="auth-intro">Poster accounts use separate login details and can publish and track task posts. Payments are not collected until Step 5.</p>}
+        {isPosterSignup && <p className="auth-intro">Poster accounts use separate login details and can publish tasks, submit deposits for manual review, and track withdrawals.</p>}
 
         {error && <div className="form-error" role="alert">{error}</div>}
         <form className="form-grid" onSubmit={handleAuth}>
