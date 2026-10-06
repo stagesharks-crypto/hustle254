@@ -30,6 +30,14 @@ function normalizeTask(task) {
   }
 }
 
+function formatKes(value) {
+  return `KSh ${Number(value || 0).toLocaleString('en-KE')}`
+}
+
+function formatDate(value) {
+  return value ? new Date(value).toLocaleString('en-KE') : 'Date unavailable'
+}
+
 const publicNavigation = [
   { label: 'Home', icon: 'H' },
   { label: 'Tasks', icon: 'T' },
@@ -64,43 +72,6 @@ const featureCards = [
   { title: 'Admin control center', text: 'Approve payouts, manage campaigns, detect abuse, and monitor analytics.', tag: 'Operations' },
 ]
 
-const taskData = [
-  { id: 'task-1', title: 'Quick survey', amount: 'KSh 80', category: 'Survey', duration: '6 min', risk: 'Low', description: 'Answer a short verified questionnaire and submit the completion proof.' },
-  { id: 'task-2', title: 'App install trial', amount: 'KSh 160', category: 'Offer wall', duration: '12 min', risk: 'Medium', description: 'Install the app, complete the onboarding flow, and submit a live proof image.' },
-  { id: 'task-3', title: 'Social engagement task', amount: 'KSh 110', category: 'Social', duration: '8 min', risk: 'Low', description: 'Follow the required page, like or share the post, and upload live proof from the current session.' },
-  { id: 'task-4', title: 'Referral bonus', amount: 'KSh 250', category: 'Referral', duration: '3 min', risk: 'Low', description: 'Earn when a successful user joins using your referral code.' },
-  { id: 'task-5', title: 'Daily streak reward', amount: 'KSh 45', category: 'Bonus', duration: '1 min', risk: 'Low', description: 'Daily streak completion bonus for active users.' },
-  { id: 'task-6', title: 'Brand campaign', amount: 'KSh 220', category: 'Campaign', duration: '15 min', risk: 'Medium', description: 'Complete a verified brand task and submit the required live proof.' },
-]
-
-const adminQueue = [
-  { user: 'Jane K.', task: 'App trial proof', amount: 'KSh 160', status: 'Pending review', risk: 'Low' },
-  { user: 'Martin W.', task: 'Survey completion', amount: 'KSh 80', status: 'Approved', risk: 'Low' },
-  { user: 'Grace N.', task: 'Daily bonus claim', amount: 'KSh 45', status: 'Flagged', risk: 'Medium' },
-  { user: 'Daniel T.', task: 'Referral payout', amount: 'KSh 300', status: 'Pending review', risk: 'High' },
-]
-
-const payoutMethods = [
-  { name: 'M-Pesa', detail: 'Instant mobile wallet payout', status: 'Enabled' },
-  { name: 'Airtel Money', detail: 'Same-day transfer to Airtel wallet', status: 'Enabled' },
-  { name: 'Bank transfer', detail: 'KES account settlement', status: 'Enabled' },
-  { name: 'USDT (BEP20)', detail: 'Crypto wallet withdrawal', status: 'Enabled' },
-]
-
-const walletHistory = [
-  { title: 'Survey completion', amount: '+KSh 80', time: '2 mins ago' },
-  { title: 'Referral bonus', amount: '+KSh 250', time: '1 hour ago' },
-  { title: 'Withdrawal to M-Pesa', amount: '-KSh 500', time: 'Yesterday' },
-  { title: 'Daily streak bonus', amount: '+KSh 45', time: '3 days ago' },
-]
-
-const referralTiers = [
-  { tier: 'Bronze', reward: '8%', detail: 'First 20 referrals' },
-  { tier: 'Silver', reward: '12%', detail: '21–80 referrals' },
-  { tier: 'Gold', reward: '15%', detail: '81+ referrals' },
-  { tier: 'VIP', reward: '20%', detail: 'Premium campaign access' },
-]
-
 const legalItems = [
   'Transparent earning rules and eligibility criteria',
   'Privacy-first data handling for KYC and payouts',
@@ -117,25 +88,13 @@ const trustChecks = [
   'Rate limits and abuse flags for suspicious behavior',
 ]
 
-const activityFeed = [
-  'Survey completed and approved',
-  'Referral bonus unlocked',
-  'Streak reward increased',
-  'Withdrawal request submitted',
-]
-
-const adminStats = [
-  { label: 'Users online', value: '2,480' },
-  { label: 'Payouts pending', value: '164' },
-  { label: 'Task approvals', value: '932' },
-  { label: 'Fraud alerts', value: '12' },
-]
-
 function App() {
   const [currentPage, setCurrentPage] = useState('Home')
-  const [selectedTaskId, setSelectedTaskId] = useState(taskData[0].id)
+  const [selectedTaskId, setSelectedTaskId] = useState('')
   const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const [tasks, setTasks] = useState(taskData.map(normalizeTask))
+  const [tasks, setTasks] = useState([])
+  const [tasksLoading, setTasksLoading] = useState(true)
+  const [tasksError, setTasksError] = useState('')
   const [taskPosts, setTaskPosts] = useState([])
   const [taskPostError, setTaskPostError] = useState('')
   const [session, setSession] = useState(() => {
@@ -146,12 +105,18 @@ function App() {
     }
   })
 
-  const selectedTask = tasks.find((task) => task.id === selectedTaskId) || tasks[0]
+  const selectedTask = tasks.find((task) => task.id === selectedTaskId) || tasks[0] || null
 
   useEffect(() => {
     apiRequest('/tasks')
-      .then(({ tasks: publishedTasks }) => setTasks(publishedTasks.map(normalizeTask)))
-      .catch(() => setTasks(taskData.map(normalizeTask)))
+      .then(({ tasks: publishedTasks }) => {
+        const loadedTasks = publishedTasks.map(normalizeTask)
+        setTasks(loadedTasks)
+        setSelectedTaskId((currentId) => loadedTasks.some((task) => task.id === currentId) ? currentId : loadedTasks[0]?.id || '')
+        setTasksError('')
+      })
+      .catch((error) => setTasksError(error.message))
+      .finally(() => setTasksLoading(false))
   }, [])
 
   useEffect(() => {
@@ -219,15 +184,15 @@ function App() {
       case 'Features':
         return <FeaturesPage setCurrentPage={setCurrentPage} />
       case 'Tasks':
-        return <TasksPage tasks={tasks} selectedTask={selectedTask} setSelectedTask={setSelectedTaskId} />
+        return <TasksPage tasks={tasks} selectedTask={selectedTask} setSelectedTask={setSelectedTaskId} loading={tasksLoading} error={tasksError} />
       case 'Post a task':
         return <PostTaskPage onSubmit={createTaskPost} />
       case 'Wallet':
-        return <WalletPage />
+        return <WalletPage session={session} />
       case 'Referral':
-        return <ReferralPage />
+        return <ReferralPage session={session} />
       case 'Dashboard':
-        return <DashboardPage />
+        return <DashboardPage session={session} />
       case 'Admin':
         return (
           <AdminPage
@@ -470,7 +435,7 @@ function FeaturesPage({ setCurrentPage }) {
   )
 }
 
-function TasksPage({ tasks, selectedTask, setSelectedTask }) {
+function TasksPage({ tasks, selectedTask, setSelectedTask, loading, error }) {
   return (
     <div className="page-wrap">
       <PageHeader
@@ -487,6 +452,9 @@ function TasksPage({ tasks, selectedTask, setSelectedTask }) {
             <button type="button" className="pill">Social</button>
           </div>
 
+          {error && <div className="form-error" role="alert">{error}</div>}
+          {loading && <p>Loading tasks…</p>}
+          {!loading && !error && tasks.length === 0 && <p>No active tasks are currently available.</p>}
           {tasks.map((task) => (
             <button
               key={task.id}
@@ -507,7 +475,7 @@ function TasksPage({ tasks, selectedTask, setSelectedTask }) {
           ))}
         </aside>
 
-        <div className="panel task-detail-panel">
+        {selectedTask ? <div className="panel task-detail-panel">
           <div className="task-headline">
             <span className="task-tag">{selectedTask.category}</span>
             <strong className="task-amount">{selectedTask.amount}</strong>
@@ -550,7 +518,12 @@ function TasksPage({ tasks, selectedTask, setSelectedTask }) {
               <button type="button" className="btn btn-secondary">Save draft</button>
             </div>
           </form>
-        </div>
+        </div> : (
+          <div className="panel task-detail-panel">
+            <h2>{error ? 'Tasks are unavailable.' : 'No task selected.'}</h2>
+            <p>{error ? 'The task catalog could not be loaded. Please try again later.' : 'Active tasks will appear here when they are available.'}</p>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -695,135 +668,179 @@ function PostTaskPage({ onSubmit }) {
   )
 }
 
-function WalletPage() {
+function WalletPage({ session }) {
+  const [dashboard, setDashboard] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    apiRequest('/user/dashboard', { token: session.token })
+      .then(setDashboard)
+      .catch((requestError) => setError(requestError.message))
+      .finally(() => setLoading(false))
+  }, [session.token])
+
   return (
     <div className="page-wrap">
       <PageHeader
         eyebrow="Wallet"
-        title="Manage earnings, payout requests, and transaction history."
-        subtitle="Clear wallet visibility helps build confidence and improves user trust in the platform."
+        title="View your stored balances and account activity."
+        subtitle="Wallet amounts are taken from your account record; activity is shown only when it has been recorded."
       />
 
+      {error && <div className="form-error" role="alert">{error}</div>}
+      {loading && <p>Loading wallet from your account…</p>}
       <div className="wallet-grid">
         <div className="panel wallet-summary">
           <span>Available balance</span>
-          <strong>KSh 7,840</strong>
-          <small>Pending: KSh 1,430</small>
-          <button type="button" className="btn btn-primary">Request payout</button>
+          <strong>{dashboard?.wallet ? formatKes(dashboard.wallet.balance_kes) : 'Not recorded'}</strong>
+          <small>Pending: {dashboard?.wallet ? formatKes(dashboard.wallet.pending_kes) : 'Not recorded'}</small>
+          <small>Withdrawn: {dashboard?.wallet ? formatKes(dashboard.wallet.withdrawn_kes) : 'Not recorded'}</small>
         </div>
 
         <div className="panel payout-methods">
-          <h3>Supported methods</h3>
-          {payoutMethods.map((method) => (
-            <div key={method.name} className="method-row">
-              <div>
-                <strong>{method.name}</strong>
-                <small>{method.detail}</small>
-              </div>
-              <span className="status-badge">{method.status}</span>
-            </div>
-          ))}
+          <h3>Wallet record</h3>
+          <p>Balances shown here are read from the wallet record linked to your account. No balance is estimated from task activity.</p>
         </div>
       </div>
 
       <div className="panel">
-        <h3>Recent activity</h3>
+        <h3>Recent recorded activity</h3>
         <div className="history-list">
-          {walletHistory.map((item) => (
-            <div key={`${item.title}-${item.time}`} className="history-row">
+          {dashboard?.recentActivity?.map((item) => (
+            <div key={`${item.activity_type}-${item.created_at}-${item.description}`} className="history-row">
               <div>
-                <strong>{item.title}</strong>
-                <small>{item.time}</small>
+                <strong>{item.activity_type === 'payout' ? `Payout: ${item.description}` : `Task: ${item.description}`}</strong>
+                <small>{item.status} · {formatDate(item.created_at)}</small>
               </div>
-              <span>{item.amount}</span>
+              {item.amount_kes !== null && item.amount_kes !== undefined && <span>{formatKes(item.amount_kes)}</span>}
             </div>
           ))}
+          {!loading && !error && dashboard?.recentActivity?.length === 0 && <p>No account activity is recorded yet.</p>}
         </div>
       </div>
     </div>
   )
 }
 
-function ReferralPage() {
+function ReferralPage({ session }) {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    apiRequest('/user/referrals', { token: session.token })
+      .then(setData)
+      .catch((requestError) => setError(requestError.message))
+      .finally(() => setLoading(false))
+  }, [session.token])
+
   return (
     <div className="page-wrap">
       <PageHeader
         eyebrow="Referral system"
-        title="Turn your network into a recurring earnings source."
-        subtitle="Our referral engine rewards active invites while keeping payout logic transparent and fraud-aware."
+        title="Review your referral records."
+        subtitle="Referral accounts and commissions appear here only after they are recorded for your account."
       />
 
       <div className="referral-grid">
         <div className="panel referral-panel">
-          <label>Referral link</label>
-          <div className="copy-box">https://hustle254.co.ke/invite/kenya-earn</div>
-          <button type="button" className="btn btn-primary">Copy link</button>
+          <label>Your referral code</label>
+          <div className="copy-box">{data?.referralCode || (loading ? 'Loading…' : 'Not set')}</div>
+          <p>Share this code with a new user. Referral registration and rewards are shown only when they are recorded in your account.</p>
         </div>
 
         <div className="panel referral-panel">
-          <h3>Commission tiers</h3>
-          {referralTiers.map((tier) => (
-            <div key={tier.tier} className="tier-row">
+          <h3>Recorded referrals ({data?.referrals?.length ?? 0})</h3>
+          {data?.referrals?.map((referral) => (
+            <div key={referral.id} className="tier-row">
               <div>
-                <strong>{tier.tier}</strong>
-                <small>{tier.detail}</small>
+                <strong>{referral.full_name}</strong>
+                <small>{referral.status} · {formatDate(referral.created_at)}</small>
               </div>
-              <span>{tier.reward}</span>
+              <span>{formatKes(referral.commission_kes)}</span>
             </div>
           ))}
+          {error && <div className="form-error" role="alert">{error}</div>}
+          {!loading && !error && data?.referrals?.length === 0 && <p>No referrals are recorded for this account.</p>}
         </div>
       </div>
     </div>
   )
 }
 
-function DashboardPage() {
+function DashboardPage({ session }) {
+  const [dashboard, setDashboard] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    apiRequest('/user/dashboard', { token: session.token })
+      .then(setDashboard)
+      .catch((requestError) => setError(requestError.message))
+      .finally(() => setLoading(false))
+  }, [session.token])
+
+  const stats = dashboard?.stats
+  const wallet = dashboard?.wallet
+
   return (
     <div className="page-wrap">
       <PageHeader
         eyebrow="User dashboard"
-        title="Your earnings overview and personal progress."
-        subtitle="A clean dashboard keeps users informed, motivated, and confident that their account is being managed fairly."
+        title="Your stored wallet balances and recorded progress."
+        subtitle="Balances, submissions, and referrals below come from the records linked to your account."
       />
 
+      {error && <div className="form-error" role="alert">{error}</div>}
+      {loading && <p>Loading account progress…</p>}
       <div className="stats-grid">
         <div className="stat-card panel">
-          <label>Today</label>
-          <strong>KSh 420</strong>
-          <small>+2 streak bonus</small>
+          <label>Available balance</label>
+          <strong>{wallet ? formatKes(wallet.balance_kes) : 'Not recorded'}</strong>
+          <small>Read from your stored wallet</small>
         </div>
         <div className="stat-card panel">
-          <label>Weekly</label>
-          <strong>KSh 2,890</strong>
-          <small>Top 15% this week</small>
+          <label>Tasks approved</label>
+          <strong>{stats?.approved_submissions ?? '—'}</strong>
+          <small>Based on reviewed submissions</small>
         </div>
         <div className="stat-card panel">
-          <label>Tasks done</label>
-          <strong>26</strong>
-          <small>5 tasks waiting review</small>
+          <label>Tasks awaiting review</label>
+          <strong>{stats?.pending_submissions ?? '—'}</strong>
+          <small>Current pending submissions</small>
         </div>
         <div className="stat-card panel">
           <label>Referrals</label>
-          <strong>11</strong>
-          <small>3 active today</small>
+          <strong>{stats?.count ?? '—'}</strong>
+          <small>Recorded referrals</small>
         </div>
       </div>
 
       <div className="dashboard-grid">
         <div className="panel">
-          <h3>Recent activity</h3>
-          <ul className="activity-list">
-            {activityFeed.map((activity) => (
-              <li key={activity}>{activity}</li>
+          <h3>Recent recorded activity</h3>
+          <div className="history-list">
+            {dashboard?.recentActivity?.map((activity) => (
+              <div key={`${activity.activity_type}-${activity.created_at}-${activity.description}`} className="history-row">
+                <div>
+                  <strong>{activity.activity_type === 'payout' ? `Payout: ${activity.description}` : `Task: ${activity.description}`}</strong>
+                  <small>{activity.status} · {formatDate(activity.created_at)}</small>
+                </div>
+                {activity.amount_kes !== null && activity.amount_kes !== undefined && <span>{formatKes(activity.amount_kes)}</span>}
+              </div>
             ))}
-          </ul>
+            {!loading && !error && dashboard?.recentActivity?.length === 0 && <p>No account activity is recorded yet.</p>}
+          </div>
         </div>
 
         <div className="panel">
-          <h3>Streak tracker</h3>
-          <div className="streak-box">
-            <div className="streak-ring" aria-label="9 day streak" />
-            <div className="streak-text">Keep going for your next KSh 250 bonus.</div>
+          <h3>Account totals</h3>
+          <div className="history-list">
+            <div className="history-row"><strong>Pending wallet balance</strong><span>{wallet ? formatKes(wallet.pending_kes) : 'Not recorded'}</span></div>
+            <div className="history-row"><strong>Withdrawn total</strong><span>{wallet ? formatKes(wallet.withdrawn_kes) : 'Not recorded'}</span></div>
+            <div className="history-row"><strong>Rejected submissions</strong><span>{stats?.rejected_submissions ?? '—'}</span></div>
+            <div className="history-row"><strong>Recorded referral commissions</strong><span>{stats ? formatKes(stats.commission_kes) : '—'}</span></div>
           </div>
         </div>
       </div>
@@ -872,6 +889,35 @@ function AdminAccessGate({ onVerifyAdminPassword }) {
 function AdminPage({ session, setCurrentPage, onVerifyAdminPassword, taskPosts, error, onModerateTaskPost }) {
   const [workingPostId, setWorkingPostId] = useState('')
   const [actionError, setActionError] = useState('')
+  const [overview, setOverview] = useState(null)
+  const [submissions, setSubmissions] = useState([])
+  const [payouts, setPayouts] = useState([])
+  const [dataLoading, setDataLoading] = useState(true)
+  const [dataError, setDataError] = useState('')
+
+  useEffect(() => {
+    if (!session?.adminToken) return undefined
+    let active = true
+    Promise.all([
+      apiRequest('/admin/overview', { token: session.adminToken }),
+      apiRequest('/admin/tasks', { token: session.adminToken }),
+      apiRequest('/admin/payouts', { token: session.adminToken }),
+    ])
+      .then(([nextOverview, taskResult, payoutResult]) => {
+        if (!active) return
+        setOverview(nextOverview)
+        setSubmissions(taskResult.tasks)
+        setPayouts(payoutResult.payouts)
+        setDataError('')
+      })
+      .catch((requestError) => {
+        if (active) setDataError(requestError.message)
+      })
+      .finally(() => {
+        if (active) setDataLoading(false)
+      })
+    return () => { active = false }
+  }, [session?.adminToken, taskPosts.length])
 
   if (!session) {
     return (
@@ -907,8 +953,8 @@ function AdminPage({ session, setCurrentPage, onVerifyAdminPassword, taskPosts, 
     <div className="page-wrap">
       <PageHeader
         eyebrow="Admin dashboard"
-        title="Moderate users, payouts, and campaigns with full operational control."
-        subtitle="This is the back-end view that keeps the platform credible, fair, and protected from abuse."
+        title="Review operational records from the database."
+        subtitle="Counts, task submissions, and payout requests shown here are loaded from stored records."
       />
 
       <section className="panel task-post-review">
@@ -916,7 +962,7 @@ function AdminPage({ session, setCurrentPage, onVerifyAdminPassword, taskPosts, 
           <div><span className="home-overline">Publisher review</span><h2>Submitted task posts</h2></div>
           <span className="review-count">{taskPosts.length} pending</span>
         </div>
-        {(error || actionError) && <div className="form-error" role="alert">{actionError || error}</div>}
+        {(error || actionError || dataError) && <div className="form-error" role="alert">{actionError || error || dataError}</div>}
         {taskPosts.length === 0 ? (
           <p className="empty-review">No task posts are waiting for approval.</p>
         ) : (
@@ -950,45 +996,52 @@ function AdminPage({ session, setCurrentPage, onVerifyAdminPassword, taskPosts, 
         <p className="review-disclaimer">Verify the campaign and reward funding before approval. Publishing makes the task visible in the Tasks catalog.</p>
       </section>
 
+      {dataLoading && <p>Loading operational records…</p>}
       <div className="stats-grid">
-        {adminStats.map((stat) => (
-          <div key={stat.label} className="stat-card panel">
-            <label>{stat.label}</label>
-            <strong>{stat.value}</strong>
+        {[
+          ['Users', overview?.usersTotal],
+          ['Pending payouts', overview?.payoutsPending],
+          ['Task submissions pending review', overview?.submissionsPending],
+          ['Active campaigns', overview?.campaignsActive],
+        ].map(([label, value]) => (
+          <div key={label} className="stat-card panel">
+            <label>{label}</label>
+            <strong>{value ?? '—'}</strong>
           </div>
         ))}
       </div>
 
       <div className="admin-grid">
         <div className="panel">
-          <h3>Review queue</h3>
+          <h3>Recorded task submissions</h3>
           <div className="queue-table">
-            <div className="queue-head">
-              <span>User</span>
-              <span>Task</span>
-              <span>Amount</span>
-              <span>Status</span>
-            </div>
-            {adminQueue.map((row) => (
-              <div key={`${row.user}-${row.task}`} className="queue-row">
-                <span>{row.user}</span>
-                <span>{row.task}</span>
-                <span>{row.amount}</span>
-                <span>{row.status}</span>
+            <div className="queue-head"><span>User</span><span>Task</span><span>Reward</span><span>Status</span></div>
+            {submissions.map((item) => (
+              <div key={item.id} className="queue-row">
+                <span>{item.user_name || 'User record unavailable'}</span>
+                <span>{item.task_title || 'Task record unavailable'}</span>
+                <span>{formatKes(item.amount_kes)}</span>
+                <span>{item.status}</span>
               </div>
             ))}
+            {!dataLoading && !dataError && submissions.length === 0 && <p>No task submissions are recorded.</p>}
           </div>
         </div>
 
         <div className="panel">
-          <h3>Fraud controls</h3>
-          <ul className="check-list compact">
-            <li>IP/device matching</li>
-            <li>Duplicate proof scan</li>
-            <li>High-risk payout review</li>
-            <li>Custom campaign limits</li>
-            <li>Manual escalation queue</li>
-          </ul>
+          <h3>Recorded payout requests</h3>
+          <div className="history-list">
+            {payouts.map((payout) => (
+              <div key={payout.id} className="history-row">
+                <div>
+                  <strong>{payout.user_name || 'User record unavailable'} · {payout.method}</strong>
+                  <small>{payout.status} · {formatDate(payout.created_at)}</small>
+                </div>
+                <span>{formatKes(payout.amount_kes)}</span>
+              </div>
+            ))}
+            {!dataLoading && !dataError && payouts.length === 0 && <p>No payout requests are recorded.</p>}
+          </div>
         </div>
       </div>
     </div>
