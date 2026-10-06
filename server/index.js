@@ -498,7 +498,7 @@ app.post('/api/auth/signup', (req, res) => registerUser(req, res));
 app.post('/api/auth/poster-signup', (req, res) => registerUser(req, res, 'poster'));
 
 app.post('/api/auth/login', async (req, res) => {
-  const { identifier, password } = req.body || {};
+  const { identifier, password, expectedRole } = req.body || {};
 
   if (!identifier || !password) {
     return res.status(400).json({ message: 'Identifier and password are required.' });
@@ -515,6 +515,9 @@ app.post('/api/auth/login', async (req, res) => {
   const valid = await bcrypt.compare(password, user.password_hash || user.passwordHash);
   if (!valid) {
     return res.status(401).json({ message: 'Invalid credentials.' });
+  }
+  if (expectedRole === 'poster' && user.role !== 'poster') {
+    return res.status(403).json({ message: 'These credentials are not for a poster account. Use regular login or register as a poster.' });
   }
 
   const wallet = await loadWallet(user.id);
