@@ -30,6 +30,8 @@ const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
 const SMTP_USER = process.env.SMTP_USER || '';
 const SMTP_PASS = process.env.SMTP_PASS || '';
 const SMTP_FROM = process.env.SMTP_FROM || 'Hustle254 <noreply@hustle254.app>';
+const GMAIL_RELAY_URL = process.env.GMAIL_RELAY_URL || '';
+const GMAIL_RELAY_SECRET = process.env.GMAIL_RELAY_SECRET || '';
 const { Pool } = pg;
 const pool = new Pool({
   connectionString: databaseUrl || 'postgresql://postgres:postgres@localhost:5432/hustle254',
@@ -110,6 +112,7 @@ async function verifyDatabase() {
 app.use(cors({
   origin(origin, callback) {
     if (!origin || clientOrigins.includes(origin)) return callback(null, true);
+    console.warn(`Rejected CORS origin: ${origin}`);
     return callback(new Error('Origin is not allowed by CORS.'));
   },
   credentials: true,
@@ -190,7 +193,21 @@ async function setEmailVerificationCode(user, code) {
   user.email_verification_attempts = 0;
 }
 
-async function sendEmailVerificationCode(toEmail, code) {
+async function sendEmailMessage({ to, subject, html }) {
+  if (GMAIL_RELAY_URL && GMAIL_RELAY_SECRET) {
+    const response = await fetch(GMAIL_RELAY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: GMAIL_RELAY_SECRET, to, subject, html }),
+      signal: AbortSignal.timeout(12000),
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok || !result?.sent) {
+      throw new Error(result?.message || `Gmail relay failed with HTTP ${response.status}.`);
+    }
+    return { sent: true };
+  }
+
   if (!SMTP_USER || !SMTP_PASS) return { sent: false };
 
   const transporter = nodemailer.createTransport({
@@ -198,10 +215,16 @@ async function sendEmailVerificationCode(toEmail, code) {
     port: SMTP_PORT,
     secure: Number(SMTP_PORT) === 465,
     auth: { user: SMTP_USER, pass: SMTP_PASS },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 20000,
   });
+  await transporter.sendMail({ from: SMTP_FROM, to, subject, html });
+  return { sent: true };
+}
 
-  await transporter.sendMail({
-    from: SMTP_FROM,
+async function sendEmailVerificationCode(toEmail, code) {
+  return sendEmailMessage({
     to: toEmail,
     subject: 'Verify your Hustle254 email',
     html: `
@@ -214,8 +237,6 @@ async function sendEmailVerificationCode(toEmail, code) {
       </div>
     `,
   });
-
-  return { sent: true };
 }
 
 function getResetLink(token) {
@@ -223,20 +244,8 @@ function getResetLink(token) {
 }
 
 async function sendPasswordResetEmail(toEmail, token) {
-  if (!SMTP_USER || !SMTP_PASS) {
-    return { sent: false, reason: 'smtp_not_configured' };
-  }
-
-  const transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: Number(SMTP_PORT) === 465,
-    auth: { user: SMTP_USER, pass: SMTP_PASS },
-  });
-
   const resetLink = getResetLink(token);
-  await transporter.sendMail({
-    from: SMTP_FROM,
+  return sendEmailMessage({
     to: toEmail,
     subject: 'Reset your Hustle254 password',
     html: `
@@ -251,8 +260,6 @@ async function sendPasswordResetEmail(toEmail, token) {
       </div>
     `,
   });
-
-  return { sent: true };
 }
 
 async function setUserResetToken(user, token) {
@@ -500,7 +507,12 @@ async function loadWallet(userId) {
 }
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', database: databaseOnline ? 'connected' : 'fallback' });
+  const emailTransport = GMAIL_RELAY_URL && GMAIL_RELAY_SECRET
+    ? 'gmail_https_relay'
+    : SMTP_USER && SMTP_PASS
+      ? 'smtp'
+      : 'not_configured';
+  res.json({ status: 'ok', database: databaseOnline ? 'connected' : 'fallback', emailTransport });
 });
 
 function matchesAdminPassword(value) {
