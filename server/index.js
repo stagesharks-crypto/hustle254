@@ -4,7 +4,8 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import pg from 'pg';
 import dotenv from 'dotenv';
-import { timingSafeEqual } from 'node:crypto';
+import nodemailer from 'nodemailer';
+import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 
 dotenv.config();
 
@@ -19,6 +20,16 @@ const clientOrigins = [process.env.CLIENT_URL || 'http://localhost:4173,http://l
 const databaseUrl = process.env.DATABASE_URL || '';
 const isProduction = process.env.NODE_ENV === 'production';
 const ADMIN_ACCESS_PASSWORD = process.env.ADMIN_ACCESS_PASSWORD || '';
+const PASSWORD_RESET_TTL_MINUTES = Number(process.env.PASSWORD_RESET_TTL_MINUTES || 30);
+const EMAIL_VERIFICATION_TTL_MINUTES = Number(process.env.EMAIL_VERIFICATION_TTL_MINUTES || 10);
+const EMAIL_VERIFICATION_RESEND_SECONDS = 60;
+const EMAIL_VERIFICATION_MAX_ATTEMPTS = 5;
+const APP_URL = (process.env.APP_URL || process.env.CLIENT_URL || 'http://localhost:4173').replace(/\/$/, '');
+const SMTP_HOST = process.env.SMTP_HOST || 'smtp.gmail.com';
+const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
+const SMTP_USER = process.env.SMTP_USER || '';
+const SMTP_PASS = process.env.SMTP_PASS || '';
+const SMTP_FROM = process.env.SMTP_FROM || 'Hustle254 <noreply@hustle254.app>';
 const { Pool } = pg;
 const pool = new Pool({
   connectionString: databaseUrl || 'postgresql://postgres:postgres@localhost:5432/hustle254',
@@ -32,6 +43,7 @@ const pool = new Pool({
 const mockUsers = [];
 const mockWallets = [];
 const mockTaskPosts = [];
+const passwordResetTokens = new Map();
 const adminAccessAttempts = new Map();
 const mockSubmissions = [];
 const mockPayouts = [];
@@ -69,6 +81,7 @@ async function verifyDatabase() {
       throw new Error(`Database schema is incomplete (missing: ${missingTables.join(', ')}). Apply db/schema.sql before starting the API.`);
     }
     const requiredColumns = {
+      users: ['email_verified_at', 'email_verification_code_hash', 'email_verification_expires_at', 'email_verification_requested_at', 'email_verification_attempts'],
       task_posts: ['poster_user_id'],
       task_submissions: ['task_post_id'],
       wallet_transactions: ['transaction_type', 'amount_kes', 'status', 'transaction_reference', 'destination'],
@@ -115,7 +128,196 @@ function sanitizeUser(user) {
   const safeUser = { ...user };
   delete safeUser.password_hash;
   delete safeUser.google_sub;
+  delete safeUser.reset_token_hash;
+  delete safeUser.reset_expires_at;
+  delete safeUser.reset_requested_at;
+  delete safeUser.reset_used_at;
+  delete safeUser.email_verification_code_hash;
+  delete safeUser.email_verification_expires_at;
+  delete safeUser.email_verification_requested_at;
+  delete safeUser.email_verification_attempts;
   return safeUser;
+}
+
+function generatePasswordResetToken() {
+  return randomBytes(32).toString('hex');
+}
+
+function hashToken(value) {
+  return createHash('sha256').update(String(value)).digest('hex');
+}
+
+function hashEmailVerificationCode(email, code) {
+  return createHmac('sha256', JWT_SECRET).update(`${email}:${code}`).digest('hex');
+}
+
+function generateEmailVerificationCode() {
+  return randomInt(0, 1_000_000).toString().padStart(6, '0');
+}
+
+function matchesEmailVerificationCode(email, code, storedHash) {
+  if (!storedHash) return false;
+  const suppliedHash = Buffer.from(hashEmailVerificationCode(email, code), 'hex');
+  const expectedHash = Buffer.from(storedHash, 'hex');
+  return suppliedHash.length === expectedHash.length && timingSafeEqual(suppliedHash, expectedHash);
+}
+
+async function setEmailVerificationCode(user, code) {
+  const codeHash = hashEmailVerificationCode(user.email, code);
+  const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_TTL_MINUTES * 60 * 1000).toISOString();
+
+  if (databaseOnline) {
+    const result = await pool.query(
+      `UPDATE users
+       SET email_verification_code_hash = $1,
+           email_verification_expires_at = $2,
+           email_verification_requested_at = NOW(),
+           email_verification_attempts = 0
+       WHERE id = $3
+       RETURNING email_verification_requested_at`,
+      [codeHash, expiresAt, user.id]
+    );
+    user.email_verification_code_hash = codeHash;
+    user.email_verification_expires_at = expiresAt;
+    user.email_verification_requested_at = result.rows[0]?.email_verification_requested_at || new Date().toISOString();
+    user.email_verification_attempts = 0;
+    return;
+  }
+
+  user.email_verification_code_hash = codeHash;
+  user.email_verification_expires_at = expiresAt;
+  user.email_verification_requested_at = new Date().toISOString();
+  user.email_verification_attempts = 0;
+}
+
+async function sendEmailVerificationCode(toEmail, code) {
+  if (!SMTP_USER || !SMTP_PASS) return { sent: false };
+
+  const transporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: Number(SMTP_PORT) === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+  });
+
+  await transporter.sendMail({
+    from: SMTP_FROM,
+    to: toEmail,
+    subject: 'Verify your Hustle254 email',
+    html: `
+      <div style="font-family: Arial, sans-serif; color: #111827; line-height: 1.6;">
+        <h2 style="margin: 0 0 12px;">Confirm your email</h2>
+        <p>Enter this one-time code in Hustle254 to finish creating your account:</p>
+        <p style="font-size: 30px; font-weight: 700; letter-spacing: 8px;">${code}</p>
+        <p>This code expires in ${EMAIL_VERIFICATION_TTL_MINUTES} minutes and can only be used once.</p>
+        <p>If you did not create a Hustle254 account, you can ignore this email.</p>
+      </div>
+    `,
+  });
+
+  return { sent: true };
+}
+
+function getResetLink(token) {
+  return `${APP_URL}/?reset=${encodeURIComponent(token)}`;
+}
+
+async function sendPasswordResetEmail(toEmail, token) {
+  if (!SMTP_USER || !SMTP_PASS) {
+    return { sent: false, reason: 'smtp_not_configured' };
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: Number(SMTP_PORT) === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+  });
+
+  const resetLink = getResetLink(token);
+  await transporter.sendMail({
+    from: SMTP_FROM,
+    to: toEmail,
+    subject: 'Reset your Hustle254 password',
+    html: `
+      <div style="font-family: Arial, sans-serif; color: #111827; line-height: 1.6;">
+        <h2 style="margin: 0 0 12px;">Reset your password</h2>
+        <p>We received a request to reset the password for your Hustle254 account.</p>
+        <p>Click the link below to set a new password. This link expires in ${PASSWORD_RESET_TTL_MINUTES} minutes.</p>
+        <p><a href="${resetLink}" style="display:inline-block;padding:12px 18px;background:#111827;color:#fff;text-decoration:none;border-radius:8px;">Reset password</a></p>
+        <p>If the button does not work, copy and paste this link into your browser:</p>
+        <p style="word-break:break-all;">${resetLink}</p>
+        <p>If you did not request this, you can safely ignore this email.</p>
+      </div>
+    `,
+  });
+
+  return { sent: true };
+}
+
+async function setUserResetToken(user, token) {
+  const tokenHash = hashToken(token);
+  const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MINUTES * 60 * 1000).toISOString();
+
+  if (databaseOnline) {
+    await pool.query(
+      `UPDATE users
+       SET reset_token_hash = $1,
+           reset_expires_at = $2,
+           reset_requested_at = NOW(),
+           reset_used_at = NULL
+       WHERE id = $3`,
+      [tokenHash, expiresAt, user.id]
+    );
+    return { hash: tokenHash, expiresAt, userId: user.id };
+  }
+
+  passwordResetTokens.set(String(user.id), { hash: tokenHash, expiresAt, userId: user.id, usedAt: null });
+  return { hash: tokenHash, expiresAt, userId: user.id };
+}
+
+async function consumeUserResetToken(token) {
+  const tokenHash = hashToken(token);
+
+  if (databaseOnline) {
+    const result = await pool.query(
+      `SELECT * FROM users
+       WHERE reset_token_hash = $1
+         AND reset_expires_at IS NOT NULL
+         AND reset_expires_at > NOW()
+         AND reset_used_at IS NULL
+       LIMIT 1`,
+      [tokenHash]
+    );
+    return result.rows[0] || null;
+  }
+
+  const record = [...passwordResetTokens.values()].find((entry) => entry.hash === tokenHash && entry.expiresAt && new Date(entry.expiresAt) > new Date() && !entry.usedAt);
+  if (!record) return null;
+  const user = await findUserById(record.userId);
+  return user;
+}
+
+async function clearUserResetToken(userId) {
+  if (databaseOnline) {
+    await pool.query(
+      `UPDATE users
+       SET reset_token_hash = NULL,
+           reset_expires_at = NULL,
+           reset_requested_at = NULL,
+           reset_used_at = NOW()
+       WHERE id = $1`,
+      [userId]
+    );
+    return;
+  }
+
+  const record = passwordResetTokens.get(String(userId));
+  if (record) {
+    record.usedAt = new Date().toISOString();
+    record.hash = null;
+    record.expiresAt = null;
+  }
 }
 
 function getAuthToken(req) {
@@ -421,7 +623,7 @@ function isValidEmailAddress(value) {
 
 async function registerUser(req, res, role = 'user') {
   const { fullName, phone, password, referralCode } = req.body || {};
-  const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
 
   if (!fullName || !email || !phone || !password) {
     return res.status(400).json({ message: 'Full name, email, phone, and password are required.' });
@@ -449,7 +651,7 @@ async function registerUser(req, res, role = 'user') {
       const userResult = await connection.query(
         `INSERT INTO users (full_name, email, phone, password_hash, referral_code, role)
          VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-        [fullName.trim(), email.trim().toLowerCase(), phone.trim(), passwordHash, nextReferralCode, role]
+        [fullName.trim(), email, phone.trim(), passwordHash, nextReferralCode, role]
       );
       [nextUser] = userResult.rows;
       const walletResult = await connection.query(
@@ -471,7 +673,7 @@ async function registerUser(req, res, role = 'user') {
     nextUser = {
       id: Date.now(),
       full_name: fullName.trim(),
-      email: email.trim().toLowerCase(),
+      email,
       phone: phone.trim(),
       password_hash: passwordHash,
       role,
@@ -486,16 +688,138 @@ async function registerUser(req, res, role = 'user') {
     mockWallets.push(wallet);
   }
 
-  const token = generateToken(nextUser);
+  const verificationCode = generateEmailVerificationCode();
+  await setEmailVerificationCode(nextUser, verificationCode);
+  let delivery = { sent: false };
+  try {
+    delivery = await sendEmailVerificationCode(nextUser.email, verificationCode);
+  } catch (error) {
+    console.error(`Could not send verification email: ${error.message}`);
+  }
+
   return res.status(201).json({
-    token,
-    user: sanitizeUser(nextUser),
-    wallet,
+    verificationRequired: true,
+    email: nextUser.email,
+    message: delivery.sent
+      ? `We sent a 6-digit verification code to ${nextUser.email}. It expires in ${EMAIL_VERIFICATION_TTL_MINUTES} minutes.`
+      : 'Your account is created, but we could not send the code. Check the email settings, then use Resend code.',
+    resendAfterSeconds: EMAIL_VERIFICATION_RESEND_SECONDS,
+    ...(!delivery.sent && !isProduction ? { devVerificationCode: verificationCode } : {}),
   });
 }
 
 app.post('/api/auth/signup', (req, res) => registerUser(req, res));
 app.post('/api/auth/poster-signup', (req, res) => registerUser(req, res, 'poster'));
+
+app.post('/api/auth/verify-email', async (req, res) => {
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  const code = typeof req.body?.code === 'string' ? req.body.code.trim() : '';
+  if (!isValidEmailAddress(email) || !/^\d{6}$/.test(code)) {
+    return res.status(400).json({ message: 'Enter the valid email address and 6-digit code.' });
+  }
+
+  const user = await findUserByIdentifier(email);
+  if (!user || user.role === 'admin') {
+    return res.status(400).json({ message: 'That code is invalid or expired. Request a new code and try again.' });
+  }
+  if (user.email_verified_at) {
+    return res.status(400).json({ message: 'This email is already verified. Please log in.' });
+  }
+  if (!user.email_verification_expires_at || new Date(user.email_verification_expires_at) <= new Date()) {
+    return res.status(400).json({ message: 'That code has expired. Request a new code and try again.' });
+  }
+  if (Number(user.email_verification_attempts || 0) >= EMAIL_VERIFICATION_MAX_ATTEMPTS) {
+    return res.status(429).json({ message: 'Too many incorrect codes. Request a new code to continue.' });
+  }
+
+  if (!matchesEmailVerificationCode(email, code, user.email_verification_code_hash)) {
+    if (databaseOnline) {
+      await pool.query(
+        `UPDATE users
+         SET email_verification_attempts = email_verification_attempts + 1
+         WHERE id = $1
+           AND email_verification_expires_at > NOW()
+           AND email_verification_attempts < $2`,
+        [user.id, EMAIL_VERIFICATION_MAX_ATTEMPTS]
+      );
+    } else {
+      user.email_verification_attempts = Number(user.email_verification_attempts || 0) + 1;
+    }
+    return res.status(400).json({ message: 'That code is incorrect. Check it and try again.' });
+  }
+
+  let verifiedUser = user;
+  if (databaseOnline) {
+    const result = await pool.query(
+      `UPDATE users
+       SET email_verified_at = NOW(),
+           email_verification_code_hash = NULL,
+           email_verification_expires_at = NULL,
+           email_verification_requested_at = NULL,
+           email_verification_attempts = 0,
+           updated_at = NOW()
+       WHERE id = $1
+         AND email_verification_code_hash = $2
+         AND email_verification_expires_at > NOW()
+         AND email_verification_attempts < $3
+       RETURNING *`,
+      [user.id, user.email_verification_code_hash, EMAIL_VERIFICATION_MAX_ATTEMPTS]
+    );
+    [verifiedUser] = result.rows;
+    if (!verifiedUser) {
+      return res.status(400).json({ message: 'That code is invalid or expired. Request a new code and try again.' });
+    }
+  } else {
+    verifiedUser.email_verified_at = new Date().toISOString();
+    verifiedUser.email_verification_code_hash = null;
+    verifiedUser.email_verification_expires_at = null;
+    verifiedUser.email_verification_requested_at = null;
+    verifiedUser.email_verification_attempts = 0;
+  }
+
+  return res.json({
+    token: generateToken(verifiedUser),
+    user: sanitizeUser(verifiedUser),
+    wallet: await loadWallet(verifiedUser.id),
+    message: 'Email verified. Your account is ready.',
+  });
+});
+
+app.post('/api/auth/resend-verification', async (req, res) => {
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  if (!isValidEmailAddress(email)) {
+    return res.status(400).json({ message: 'Enter a valid email address.' });
+  }
+
+  const user = await findUserByIdentifier(email);
+  if (!user || user.role === 'admin' || user.email_verified_at) {
+    return res.json({ message: 'If that account needs verification, a code has been sent.' });
+  }
+
+  const requestedAt = user.email_verification_requested_at ? new Date(user.email_verification_requested_at).getTime() : 0;
+  const elapsedSeconds = (Date.now() - requestedAt) / 1000;
+  if (elapsedSeconds < EMAIL_VERIFICATION_RESEND_SECONDS) {
+    return res.json({
+      message: 'If that account needs verification, a code has been sent.',
+      resendAfterSeconds: Math.ceil(EMAIL_VERIFICATION_RESEND_SECONDS - elapsedSeconds),
+    });
+  }
+
+  const verificationCode = generateEmailVerificationCode();
+  await setEmailVerificationCode(user, verificationCode);
+  let delivery = { sent: false };
+  try {
+    delivery = await sendEmailVerificationCode(user.email, verificationCode);
+  } catch (error) {
+    console.error(`Could not send verification email: ${error.message}`);
+  }
+
+  return res.json({
+    message: 'If that account needs verification, a code has been sent.',
+    resendAfterSeconds: EMAIL_VERIFICATION_RESEND_SECONDS,
+    ...(!delivery.sent && !isProduction ? { devVerificationCode: verificationCode } : {}),
+  });
+});
 
 app.post('/api/auth/login', async (req, res) => {
   const { identifier, password, expectedRole } = req.body || {};
@@ -519,7 +843,14 @@ app.post('/api/auth/login', async (req, res) => {
   if (expectedRole === 'poster' && user.role !== 'poster') {
     return res.status(403).json({ message: 'These credentials are not for a poster account. Use regular login or register as a poster.' });
   }
-
+  if (['user', 'poster'].includes(user.role) && !user.email_verified_at) {
+    return res.status(403).json({
+      code: 'EMAIL_NOT_VERIFIED',
+      email: user.email,
+      resendAfterSeconds: Math.max(0, EMAIL_VERIFICATION_RESEND_SECONDS - Math.floor((Date.now() - new Date(user.email_verification_requested_at || 0).getTime()) / 1000)),
+      message: 'Verify your email to finish setting up your account.',
+    });
+  }
   const wallet = await loadWallet(user.id);
   const token = generateToken(user);
 
@@ -528,6 +859,74 @@ app.post('/api/auth/login', async (req, res) => {
     user: sanitizeUser(user),
     wallet,
   });
+});
+
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const rawEmail = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
+  const email = rawEmail.toLowerCase();
+
+  if (!email || !isValidEmailAddress(email)) {
+    return res.status(400).json({ message: 'Enter a valid email address to receive a reset link.' });
+  }
+
+  const user = await findUserByIdentifier(email);
+  if (!user) {
+    return res.json({ message: 'If an account with that email exists, we sent a reset link.' });
+  }
+
+  const token = generatePasswordResetToken();
+  await setUserResetToken(user, token);
+  const emailResult = await sendPasswordResetEmail(user.email, token);
+
+  if (!emailResult.sent && !isProduction) {
+    return res.json({
+      message: 'If an account with that email exists, we sent a reset link.',
+      devResetToken: token,
+      resetLink: getResetLink(token),
+    });
+  }
+
+  return res.json({ message: 'If an account with that email exists, we sent a reset link.' });
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+  const rawToken = String(req.body?.token || '').trim();
+  const rawPassword = String(req.body?.password || '');
+
+  if (!rawToken) {
+    return res.status(400).json({ message: 'A reset token is required. Use the link from your email.' });
+  }
+
+  if (rawPassword.length < 8) {
+    return res.status(400).json({ message: 'Choose a password with at least 8 characters.' });
+  }
+
+  const user = await consumeUserResetToken(rawToken);
+  if (!user) {
+    return res.status(400).json({ message: 'This reset link is invalid or has expired. Request a new password reset link.' });
+  }
+
+  const passwordHash = await bcrypt.hash(rawPassword, 10);
+
+  if (databaseOnline) {
+    await pool.query(
+      `UPDATE users
+       SET password_hash = $1,
+           reset_token_hash = NULL,
+           reset_expires_at = NULL,
+           reset_requested_at = NULL,
+           reset_used_at = NOW(),
+           updated_at = NOW()
+       WHERE id = $2`,
+      [passwordHash, user.id]
+    );
+  } else {
+    user.password_hash = passwordHash;
+    user.updated_at = new Date().toISOString();
+    await clearUserResetToken(user.id);
+  }
+
+  return res.json({ message: 'Your password has been updated successfully. You can now log in with your new password.' });
 });
 
 app.post('/api/admin/access', requireAuth, (req, res) => {
