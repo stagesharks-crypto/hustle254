@@ -18,8 +18,8 @@
     "cors": "^2.8.5",
     "dotenv": "^17.0.1",
     "express": "^5.1.0",
-    "google-auth-library": "^11.1.0",
     "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^10.1.0",
     "pg": "^8.19.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
