@@ -54,7 +54,13 @@ async function apiRequest(path, options = {}) {
     },
   })
   const result = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(result.message || 'Request failed. Please try again.')
+  if (!response.ok) {
+    const error = new Error(result.message || 'Request failed. Please try again.')
+    error.code = result.code
+    error.email = result.email
+    error.resendAfterSeconds = result.resendAfterSeconds
+    throw error
+  }
   return result
 }
 
@@ -75,6 +81,14 @@ function formatKes(value) {
 
 function formatDate(value) {
   return value ? new Date(value).toLocaleString('en-KE') : 'Date unavailable'
+}
+
+function getUserInitials(name, fallback = 'User') {
+  const source = String(name || fallback || 'User').trim()
+  const parts = source.split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return 'U'
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
 }
 
 const publicNavigation = [
@@ -135,6 +149,11 @@ function App() {
   const [canGoBack, setCanGoBack] = useState(false)
   const [selectedTaskId, setSelectedTaskId] = useState('')
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false)
+  const [profileModalOpen, setProfileModalOpen] = useState(false)
+  const [profileTab, setProfileTab] = useState('overview')
+  const [passwordNotice, setPasswordNotice] = useState('')
+  const [verificationContext, setVerificationContext] = useState({ email: '', message: '', devVerificationCode: '', resendAfterSeconds: 0 })
   const [tasks, setTasks] = useState([])
   const [tasksLoading, setTasksLoading] = useState(true)
   const [tasksError, setTasksError] = useState('')
@@ -166,6 +185,16 @@ function App() {
     setIsMenuOpen(false)
   }
 
+  function handleVerificationRequested(email, result = {}) {
+    setVerificationContext({
+      email,
+      message: result.message || 'Enter the code sent to your email to activate your account.',
+      devVerificationCode: result.devVerificationCode || '',
+      resendAfterSeconds: Number(result.resendAfterSeconds || 0),
+    })
+    setCurrentPage('Verify email')
+  }
+
   function goBack() {
     if (pageHistory.current.length <= 1) {
       setNavigationRoot('Home')
@@ -179,6 +208,16 @@ function App() {
   }
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) || tasks[0] || null
+
+  useEffect(() => {
+    const resetToken = new URLSearchParams(window.location.search).get('reset')
+    if (resetToken) {
+      setCurrentPage('Reset password')
+      const nextUrl = new URL(window.location.href)
+      nextUrl.searchParams.delete('reset')
+      window.history.replaceState({}, '', nextUrl)
+    }
+  }, [])
 
   useEffect(() => {
     apiRequest('/tasks')
@@ -252,13 +291,83 @@ function App() {
     setSession(nextSession)
   }
 
+  function updateSessionUser(updater) {
+    setSession((currentSession) => {
+      if (!currentSession) return currentSession
+      const nextSession = {
+        ...currentSession,
+        user: {
+          ...currentSession.user,
+          ...(typeof updater === 'function' ? updater(currentSession.user) : updater),
+        },
+      }
+      localStorage.setItem('hustle254-session', JSON.stringify(nextSession))
+      return nextSession
+    })
+  }
+
   function handleSignOut() {
     localStorage.removeItem('hustle254-session')
     setSession(null)
+    setProfileMenuOpen(false)
+    setProfileModalOpen(false)
     setNavigationRoot('Home')
   }
 
+  function handleProfilePhotoUpload(event) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      updateSessionUser((currentUser) => ({ ...currentUser, avatar: String(reader.result) }))
+      setProfileTab('photo')
+      setPasswordNotice('')
+    }
+    reader.readAsDataURL(file)
+    event.target.value = ''
+  }
+
+  function handleRemoveProfilePhoto() {
+    updateSessionUser((currentUser) => ({ ...currentUser, avatar: '' }))
+  }
+
+  function handlePasswordUpdate(event) {
+    event.preventDefault()
+    const formData = new FormData(event.currentTarget)
+    const currentPassword = String(formData.get('currentPassword') || '').trim()
+    const newPassword = String(formData.get('newPassword') || '')
+    const confirmPassword = String(formData.get('confirmPassword') || '')
+    const savedPassword = session?.user?.password || ''
+
+    if (savedPassword && currentPassword !== savedPassword) {
+      setPasswordNotice('Your current password does not match the saved value on this device.')
+      return
+    }
+
+    if (newPassword.length < 8) {
+      setPasswordNotice('New password must be at least 8 characters long.')
+      return
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordNotice('The new passwords do not match.')
+      return
+    }
+
+    updateSessionUser((currentUser) => ({
+      ...currentUser,
+      password: newPassword,
+      passwordUpdatedAt: new Date().toISOString(),
+    }))
+    setPasswordNotice('Password updated locally for this account.')
+    event.currentTarget.reset()
+  }
+
   const effectivePage = session && ['Login', 'Poster login', 'Sign up', 'Poster signup'].includes(currentPage) ? 'Dashboard' : currentPage
+  const profileUser = session?.user || null
+  const profileName = profileUser?.full_name || profileUser?.fullName || profileUser?.email || 'Profile'
+  const profileInitials = getUserInitials(profileName, profileUser?.email || 'User')
 
   const renderPage = () => {
     if (!session && memberPages.has(effectivePage) && effectivePage !== 'Admin') {
@@ -285,7 +394,7 @@ function App() {
       case 'Referral':
         return <ReferralPage session={session} />
       case 'Dashboard':
-        return <DashboardPage session={session} />
+        return <DashboardPage session={session} onOpenProfile={() => { setProfileModalOpen(true); setProfileTab('overview') }} />
       case 'Admin':
         return (
           <AdminPage
@@ -302,11 +411,17 @@ function App() {
         return <TrustPage />
       case 'Legal':
         return <LegalPage />
+      case 'Forgot password':
+        return <ForgotPasswordPage onBack={() => setCurrentPage('Login')} />
+      case 'Reset password':
+        return <ResetPasswordPage onBack={() => setCurrentPage('Login')} onAuthenticated={handleAuthenticated} />
+      case 'Verify email':
+        return <VerifyEmailPage context={verificationContext} onAuthenticated={handleAuthenticated} onBack={() => setCurrentPage('Login')} />
       case 'Login':
       case 'Poster login':
       case 'Sign up':
       case 'Poster signup':
-        return <AuthPage type={effectivePage === 'Poster login' ? 'posterLogin' : effectivePage === 'Login' ? 'login' : effectivePage === 'Poster signup' ? 'posterSignup' : 'signup'} onChangeType={(page) => setCurrentPage(page, { replace: true })} onAuthenticated={handleAuthenticated} />
+        return <AuthPage type={effectivePage === 'Poster login' ? 'posterLogin' : effectivePage === 'Login' ? 'login' : effectivePage === 'Poster signup' ? 'posterSignup' : 'signup'} onChangeType={(page) => setCurrentPage(page, { replace: true })} onAuthenticated={handleAuthenticated} onVerificationRequested={handleVerificationRequested} />
       case 'Home':
       default:
         return <HomePage setCurrentPage={setCurrentPage} session={session} />
@@ -413,12 +528,52 @@ function App() {
             <span /><span /><span />
           </button>}
           <div className="topbar-context">{effectivePage === 'Login' || effectivePage === 'Sign up' ? 'Your account' : effectivePage}</div>
-          <button type="button" className="topbar-account" onClick={session ? handleSignOut : () => setCurrentPage('Login')}>
-            {session ? 'Log out' : <>Log in <span aria-hidden="true">/</span> Sign up</>}
-          </button>
+
+          {session ? (
+            <div className="topbar-profile-wrap">
+              <button type="button" className="topbar-profile" onClick={() => setProfileMenuOpen((open) => !open)} aria-expanded={profileMenuOpen} aria-label="Open profile menu">
+                <span className="profile-avatar" aria-hidden="true">
+                  {profileUser?.avatar ? <img src={profileUser.avatar} alt="Profile" /> : <span>{profileInitials}</span>}
+                </span>
+                <span className="profile-account-copy">
+                  <strong>{profileName}</strong>
+                  <small>Profile</small>
+                </span>
+                <span className="profile-caret" aria-hidden="true">▾</span>
+              </button>
+
+              {profileMenuOpen && (
+                <div className="profile-menu-popover" role="menu" aria-label="Account actions">
+                  <button type="button" role="menuitem" onClick={() => { setProfileMenuOpen(false); setProfileModalOpen(true); setProfileTab('overview') }} className="profile-menu-item">View profile</button>
+                  <button type="button" role="menuitem" onClick={() => { setProfileMenuOpen(false); setProfileModalOpen(true); setProfileTab('security') }} className="profile-menu-item">Change password</button>
+                  <button type="button" role="menuitem" onClick={() => { setProfileMenuOpen(false); setProfileModalOpen(true); setProfileTab('photo') }} className="profile-menu-item">Profile photo</button>
+                  <button type="button" role="menuitem" onClick={handleSignOut} className="profile-menu-item profile-menu-danger">Log out</button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <button type="button" className="topbar-account" onClick={() => setCurrentPage('Login')}>
+              Log in <span aria-hidden="true">/</span> Sign up
+            </button>
+          )}
         </header>
 
         <main>{renderPage()}</main>
+
+        {session && (
+          <ProfileModal
+            session={session}
+            open={profileModalOpen}
+            onClose={() => setProfileModalOpen(false)}
+            activeTab={profileTab}
+            setActiveTab={setProfileTab}
+            onPhotoUpload={handleProfilePhotoUpload}
+            onRemovePhoto={handleRemoveProfilePhoto}
+            onPasswordSubmit={handlePasswordUpdate}
+            passwordNotice={passwordNotice}
+            setPasswordNotice={setPasswordNotice}
+          />
+        )}
 
         <footer className="site-footer">
           <div>
@@ -1194,7 +1349,7 @@ function ReferralPage({ session }) {
   )
 }
 
-function DashboardPage({ session }) {
+function DashboardPage({ session, onOpenProfile }) {
   const [dashboard, setDashboard] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -1208,9 +1363,25 @@ function DashboardPage({ session }) {
 
   const stats = dashboard?.stats
   const wallet = dashboard?.wallet
+  const userName = session?.user?.full_name || session?.user?.fullName || session?.user?.email || 'Your profile'
+  const userInitials = getUserInitials(userName, session?.user?.email || 'User')
 
   return (
     <div className="page-wrap">
+      <div className="profile-summary-card panel">
+        <div className="profile-summary-main">
+          <div className="profile-avatar-large" aria-hidden="true">
+            {session?.user?.avatar ? <img src={session.user.avatar} alt="Profile" /> : <span>{userInitials}</span>}
+          </div>
+          <div>
+            <span className="profile-summary-tag">Your profile</span>
+            <h3>{userName}</h3>
+            <small>{session?.user?.email || 'No email on file'}</small>
+          </div>
+        </div>
+        <button type="button" className="btn btn-secondary" onClick={onOpenProfile}>Edit profile</button>
+      </div>
+
       <PageHeader
         eyebrow="User dashboard"
         title="Your stored wallet balances and recorded progress."
@@ -1271,6 +1442,114 @@ function DashboardPage({ session }) {
             <div className="history-row"><strong>Rejected submissions</strong><span>{stats?.rejected_submissions ?? '—'}</span></div>
             <div className="history-row"><strong>Recorded referral commissions</strong><span>{stats ? formatKes(stats.commission_kes) : '—'}</span></div>
           </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ProfileModal({ session, open, onClose, activeTab, setActiveTab, onPhotoUpload, onRemovePhoto, onPasswordSubmit, passwordNotice, setPasswordNotice }) {
+  if (!open || !session) return null
+
+  const user = session.user || {}
+  const profileName = user.full_name || user.fullName || user.email || 'Profile'
+  const profileInitials = getUserInitials(profileName, user.email || 'User')
+
+  return (
+    <div className="profile-modal-backdrop" onClick={onClose}>
+      <div className="profile-modal panel" onClick={(event) => event.stopPropagation()}>
+        <div className="profile-modal-header">
+          <div>
+            <span className="eyebrow">Account profile</span>
+            <h3>{profileName}</h3>
+          </div>
+          <button type="button" className="topbar-back" onClick={onClose}>Close</button>
+        </div>
+
+        <div className="profile-modal-shell">
+          <aside className="profile-modal-sidebar">
+            <div className="profile-avatar-xl" aria-hidden="true">
+              {user.avatar ? <img src={user.avatar} alt="Profile" /> : <span>{profileInitials}</span>}
+            </div>
+            <div className="profile-summary-meta">
+              <strong>{profileName}</strong>
+              <small>{user.email || 'Email unavailable'}</small>
+              <span>{(user.role || 'user').toUpperCase()}</span>
+            </div>
+            <label className="profile-upload-btn">
+              <input type="file" accept="image/*" onChange={onPhotoUpload} />
+              Upload photo
+            </label>
+            {user.avatar && (
+              <button type="button" className="btn btn-secondary btn-block" onClick={onRemovePhoto}>Remove photo</button>
+            )}
+          </aside>
+
+          <section className="profile-modal-content">
+            <div className="profile-tab-row" role="tablist" aria-label="Profile settings tabs">
+              <button type="button" role="tab" aria-selected={activeTab === 'overview'} className={activeTab === 'overview' ? 'profile-tab active' : 'profile-tab'} onClick={() => { setActiveTab('overview'); setPasswordNotice('') }}>Overview</button>
+              <button type="button" role="tab" aria-selected={activeTab === 'security'} className={activeTab === 'security' ? 'profile-tab active' : 'profile-tab'} onClick={() => { setActiveTab('security'); setPasswordNotice('') }}>Security</button>
+              <button type="button" role="tab" aria-selected={activeTab === 'photo'} className={activeTab === 'photo' ? 'profile-tab active' : 'profile-tab'} onClick={() => { setActiveTab('photo'); setPasswordNotice('') }}>Photo</button>
+            </div>
+
+            {activeTab === 'overview' && (
+              <div className="profile-info-grid">
+                <div className="info-chip">
+                  <label>Name</label>
+                  <strong>{profileName}</strong>
+                </div>
+                <div className="info-chip">
+                  <label>Role</label>
+                  <strong>{user.role || 'User'}</strong>
+                </div>
+                <div className="info-chip full-width">
+                  <label>Email</label>
+                  <strong>{user.email || 'Not set'}</strong>
+                </div>
+                <div className="info-chip full-width">
+                  <label>Phone</label>
+                  <strong>{user.phone || 'Not set'}</strong>
+                </div>
+                <div className="info-chip full-width">
+                  <label>Profile status</label>
+                  <strong>{user.passwordUpdatedAt ? 'Profile secured' : 'Ready for setup'}</strong>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'photo' && (
+              <div className="profile-photo-panel">
+                <div className="profile-photo-preview">
+                  {user.avatar ? <img src={user.avatar} alt="Profile preview" /> : <span>{profileInitials}</span>}
+                </div>
+                <p>Upload a professional headshot or a favorite photo. It will appear across your account and topbar whenever you are signed in.</p>
+                <label className="profile-upload-btn large">
+                  <input type="file" accept="image/*" onChange={onPhotoUpload} />
+                  Choose profile photo
+                </label>
+                {user.avatar && <button type="button" className="btn btn-secondary" onClick={onRemovePhoto}>Remove current photo</button>}
+              </div>
+            )}
+
+            {activeTab === 'security' && (
+              <form className="profile-password-form" onSubmit={onPasswordSubmit}>
+                {passwordNotice && <div className="form-error" role="alert">{passwordNotice}</div>}
+                <label>
+                  Current password
+                  <input name="currentPassword" type="password" autoComplete="current-password" placeholder="Enter current password" />
+                </label>
+                <label>
+                  New password
+                  <input name="newPassword" type="password" autoComplete="new-password" placeholder="At least 8 characters" minLength="8" required />
+                </label>
+                <label>
+                  Confirm new password
+                  <input name="confirmPassword" type="password" autoComplete="new-password" placeholder="Confirm your new password" minLength="8" required />
+                </label>
+                <button type="submit" className="btn btn-primary btn-block">Update password</button>
+              </form>
+            )}
+          </section>
         </div>
       </div>
     </div>
@@ -1809,7 +2088,259 @@ function TrustPage() {
   )
 }
 
-function AuthPage({ type, onChangeType, onAuthenticated }) {
+function ForgotPasswordPage({ onBack }) {
+  const [email, setEmail] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+
+  async function handleSubmit(event) {
+    event.preventDefault()
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!normalizedEmail || !isValidEmailAddress(normalizedEmail)) {
+      setError('Enter a valid email address to receive the reset link.')
+      return
+    }
+
+    setSubmitting(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const result = await apiRequest('/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ email: normalizedEmail }),
+      })
+      setSuccess(result.message || 'If an account with that email exists, we sent a reset link.')
+    } catch (submitError) {
+      setError(submitError.message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="page-wrap auth-wrap">
+      <div className="panel auth-panel">
+        <div className="eyebrow">Account recovery</div>
+        <h2>Reset your password</h2>
+        <p className="auth-intro">Enter the email address tied to your Hustle254 account. We will send a secure reset link to help you set a new password.</p>
+        {error && <div className="form-error" role="alert">{error}</div>}
+        {success && <div className="submission-success" role="status">{success}</div>}
+        <form className="form-grid" onSubmit={handleSubmit}>
+          <label>
+            Email address
+            <input
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="you@example.com"
+              required
+            />
+          </label>
+          <button type="submit" className="btn btn-primary btn-block" disabled={submitting}>
+            {submitting ? 'Sending reset link…' : 'Send reset link'}
+          </button>
+          <button type="button" className="btn btn-secondary btn-block" onClick={onBack}>
+            Back to login
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function ResetPasswordPage({ onBack }) {
+  const [token, setToken] = useState(() => new URLSearchParams(window.location.search).get('reset') || '')
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+
+  async function handleSubmit(event) {
+    event.preventDefault()
+
+    const trimmedToken = token.trim()
+    if (!trimmedToken) {
+      setError('The reset token is missing. Use the link from your email or paste it here.')
+      return
+    }
+    if (password.length < 8) {
+      setError('Choose a password with at least 8 characters.')
+      return
+    }
+    if (password !== confirmPassword) {
+      setError('The passwords do not match.')
+      return
+    }
+
+    setSubmitting(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const result = await apiRequest('/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({ token: trimmedToken, password }),
+      })
+      setSuccess(result.message)
+      setPassword('')
+      setConfirmPassword('')
+      setToken(trimmedToken)
+      window.setTimeout(() => onBack(), 1800)
+    } catch (submitError) {
+      setError(submitError.message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="page-wrap auth-wrap">
+      <div className="panel auth-panel">
+        <div className="eyebrow">New password</div>
+        <h2>Create a secure password</h2>
+        <p className="auth-intro">Use the secure link you received by email, or paste the reset token below.</p>
+        {error && <div className="form-error" role="alert">{error}</div>}
+        {success && <div className="submission-success" role="status">{success}</div>}
+        <form className="form-grid" onSubmit={handleSubmit}>
+          <label>
+            Reset token
+            <input
+              type="text"
+              value={token}
+              onChange={(event) => setToken(event.target.value)}
+              placeholder="Paste your secure reset token"
+              required
+            />
+          </label>
+          <label>
+            New password
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              minLength="8"
+              placeholder="At least 8 characters"
+              required
+            />
+          </label>
+          <label>
+            Confirm password
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              minLength="8"
+              placeholder="Repeat your new password"
+              required
+            />
+          </label>
+          <button type="submit" className="btn btn-primary btn-block" disabled={submitting}>
+            {submitting ? 'Updating password…' : 'Update password'}
+          </button>
+          <button type="button" className="btn btn-secondary btn-block" onClick={onBack}>Back to login</button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function VerifyEmailPage({ context, onAuthenticated, onBack }) {
+  const email = context.email
+  const [code, setCode] = useState('')
+  const [notice, setNotice] = useState(context.message)
+  const [devCode, setDevCode] = useState(context.devVerificationCode)
+  const [resendAfter, setResendAfter] = useState(context.resendAfterSeconds)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (resendAfter <= 0) return undefined
+    const timeout = window.setTimeout(() => setResendAfter((remaining) => Math.max(0, remaining - 1)), 1000)
+    return () => window.clearTimeout(timeout)
+  }, [resendAfter])
+
+  async function verifyEmail(event) {
+    event.preventDefault()
+    setSubmitting(true)
+    setError('')
+    try {
+      const result = await apiRequest('/auth/verify-email', {
+        method: 'POST',
+        body: JSON.stringify({ email, code }),
+      })
+      onAuthenticated({ token: result.token, user: result.user })
+    } catch (submitError) {
+      setError(submitError.message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function resendCode() {
+    setSubmitting(true)
+    setError('')
+    try {
+      const result = await apiRequest('/auth/resend-verification', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      })
+      setNotice(result.message)
+      setDevCode(result.devVerificationCode || '')
+      setResendAfter(Number(result.resendAfterSeconds || 0))
+    } catch (submitError) {
+      setError(submitError.message)
+      setResendAfter(Number(submitError.resendAfterSeconds || 0))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="page-wrap auth-wrap">
+      <div className="panel auth-panel">
+        <div className="eyebrow">Email verification</div>
+        <h2>Confirm it’s really you.</h2>
+        <p className="auth-intro">Enter the 6-digit code we sent to your inbox. Your account stays locked until the address is confirmed.</p>
+        {error && <div className="form-error" role="alert">{error}</div>}
+        {notice && <div className="submission-success" role="status">{notice}</div>}
+        {devCode && <div className="submission-success" role="status">Development code: <strong>{devCode}</strong></div>}
+        <form className="form-grid" onSubmit={verifyEmail}>
+          <label>
+            Email address
+            <input type="email" value={email} readOnly />
+          </label>
+          <label>
+            6-digit code
+            <input
+              className="verification-code-input"
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]{6}"
+              maxLength="6"
+              value={code}
+              onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="000000"
+              required
+            />
+          </label>
+          <button type="submit" className="btn btn-primary btn-block" disabled={submitting || code.length !== 6}>
+            {submitting ? 'Checking code…' : 'Verify email and continue'}
+          </button>
+          <button type="button" className="btn btn-secondary btn-block" onClick={resendCode} disabled={submitting || resendAfter > 0}>
+            {resendAfter > 0 ? `Resend code in ${resendAfter}s` : 'Resend verification code'}
+          </button>
+          <button type="button" className="auth-link-btn" onClick={onBack}>Back to login</button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function AuthPage({ type, onChangeType, onAuthenticated, onVerificationRequested }) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const isPosterLogin = type === 'posterLogin'
@@ -1849,9 +2380,17 @@ function AuthPage({ type, onChangeType, onAuthenticated }) {
         body: JSON.stringify(payload),
         }
       )
+      if (result.verificationRequired) {
+        onVerificationRequested(result.email, result)
+        return
+      }
       onAuthenticated({ token: result.token, user: result.user })
     } catch (authError) {
-      setError(authError.message)
+      if (authError.code === 'EMAIL_NOT_VERIFIED') {
+        onVerificationRequested(authError.email || email, authError)
+      } else {
+        setError(authError.message)
+      }
     } finally {
       setSubmitting(false)
     }
@@ -1890,7 +2429,7 @@ function AuthPage({ type, onChangeType, onAuthenticated }) {
               onInput={isLogin ? undefined : (event) => event.currentTarget.setCustomValidity('')}
               required
             />
-            {!isLogin && <small>We check the address format only; this does not verify that the inbox exists.</small>}
+            {!isLogin && <small>We’ll send a one-time code to confirm you can access this inbox.</small>}
           </label>
           {!isLogin && (
             <label>
@@ -1907,6 +2446,11 @@ function AuthPage({ type, onChangeType, onAuthenticated }) {
               Referral code (optional)
               <input name="referralCode" type="text" placeholder="HUSTLE254" />
             </label>
+          )}
+          {isLogin && (
+            <button type="button" className="auth-link-btn" onClick={() => onChangeType('Forgot password')}>
+              Forgot password?
+            </button>
           )}
           <button type="submit" className="btn btn-primary btn-block" disabled={submitting}>
             {submitting ? 'Please wait…' : isPosterLogin ? 'Login as poster' : isLogin ? 'Login' : isPosterSignup ? 'Create poster account' : 'Create account'}
