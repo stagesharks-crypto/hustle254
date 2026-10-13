@@ -37,6 +37,10 @@ Users and posters receive one daily streak check-in automatically when their aut
 
 Before deploying streak rewards to an existing database, apply `db/migrations/20261013_daily_streak_rewards.sql` (or apply the updated `db/schema.sql` to a new database). The API checks for these tables at startup and production will not start with the old schema.
 
+## Appearance
+
+Use the Light/Dark control in the top bar to switch between the original dark appearance and the light appearance. The selection is saved in the browser and applies across pages on the same device.
+
 Free-tier caveat: Supabase currently includes 500 MB database storage, but pauses Free projects after one week of inactivity and does not include downloadable database backups. This is suitable for setup/testing; use a paid Supabase plan before relying on it for a live earnings product. Render's Free Postgres is a 30-day trial, so it is not the recommended persistent database.
 
 ## Hustle254 Task Publishing
