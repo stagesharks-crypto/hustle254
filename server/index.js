@@ -22,6 +22,9 @@ const isProduction = process.env.NODE_ENV === 'production';
 const ADMIN_ACCESS_PASSWORD = process.env.ADMIN_ACCESS_PASSWORD || '';
 const PASSWORD_RESET_TTL_MINUTES = Number(process.env.PASSWORD_RESET_TTL_MINUTES || 30);
 const EMAIL_VERIFICATION_TTL_MINUTES = Number(process.env.EMAIL_VERIFICATION_TTL_MINUTES || 10);
+const STREAK_REWARD_USD = '0.023';
+const STREAK_REWARD_KES = 2.94;
+const STREAK_TIME_ZONE = 'Africa/Nairobi';
 const EMAIL_VERIFICATION_RESEND_SECONDS = 60;
 const EMAIL_VERIFICATION_MAX_ATTEMPTS = 5;
 const APP_URL = (process.env.APP_URL || process.env.CLIENT_URL || 'http://localhost:4173').replace(/\/$/, '');
@@ -44,6 +47,8 @@ const pool = new Pool({
 
 const mockUsers = [];
 const mockWallets = [];
+const mockUserStreaks = [];
+const mockStreakRewardClaims = [];
 const mockTaskPosts = [];
 const passwordResetTokens = new Map();
 const adminAccessAttempts = new Map();
@@ -64,6 +69,8 @@ async function verifyDatabase() {
     const requiredTables = [
       'users',
       'wallets',
+      'user_streaks',
+      'streak_reward_claims',
       'wallet_transactions',
       'tasks',
       'task_posts',
@@ -370,6 +377,25 @@ function requireAdmin(req, res, next) {
     return res.status(403).json({ message: 'Admin password verification required.' });
   }
   next();
+}
+
+function getNairobiDateKey(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: STREAK_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const dateParts = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
+}
+
+function getCalendarDayDifference(previousDate, currentDate) {
+  const toDayNumber = (value) => {
+    const [year, month, day] = value.split('-').map(Number);
+    return Date.UTC(year, month - 1, day) / 86400000;
+  };
+  return toDayNumber(currentDate) - toDayNumber(previousDate);
 }
 
 const allowedTaskCategories = new Set([
@@ -1508,6 +1534,165 @@ app.post('/api/wallet/withdrawals', requireAuth, async (req, res) => {
   return res.status(201).json({
     message: 'Withdrawal request sent to admin. The requested amount is reserved until the request is approved or rejected.',
     transaction,
+  });
+});
+
+app.post('/api/user/streak/check-in', requireAuth, async (req, res) => {
+  if (!['user', 'poster'].includes(req.user.role)) {
+    return res.status(403).json({ message: 'A user or poster account is required for daily streak rewards.' });
+  }
+
+  const today = getNairobiDateKey();
+  let currentStreak;
+  let rewardEarnedToday = false;
+
+  if (databaseOnline) {
+    const connection = await pool.connect();
+    try {
+      await connection.query('BEGIN');
+      await connection.query(
+        `INSERT INTO user_streaks (user_id, current_streak, last_login_date)
+         VALUES ($1, 0, NULL)
+         ON CONFLICT (user_id) DO NOTHING`,
+        [req.user.sub]
+      );
+      const streakResult = await connection.query(
+        'SELECT current_streak, last_login_date FROM user_streaks WHERE user_id = $1 FOR UPDATE',
+        [req.user.sub]
+      );
+      const streak = streakResult.rows[0];
+      const existingClaim = await connection.query(
+        'SELECT id FROM streak_reward_claims WHERE user_id = $1 AND streak_day = $2',
+        [req.user.sub, today]
+      );
+      rewardEarnedToday = existingClaim.rowCount > 0;
+      currentStreak = Number(streak.current_streak);
+
+      if (streak.last_login_date !== today) {
+        const daysSinceLogin = streak.last_login_date
+          ? getCalendarDayDifference(String(streak.last_login_date).slice(0, 10), today)
+          : 0;
+        currentStreak = daysSinceLogin === 1
+          ? (currentStreak >= 7 ? 1 : currentStreak + 1)
+          : 1;
+
+        if (currentStreak === 7) {
+          const claim = await connection.query(
+            `INSERT INTO streak_reward_claims (user_id, streak_day, reward_usd, amount_kes)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (user_id, streak_day) DO NOTHING
+             RETURNING id`,
+            [req.user.sub, today, STREAK_REWARD_USD, STREAK_REWARD_KES]
+          );
+          if (claim.rowCount) {
+            const walletUpdate = await connection.query(
+              `UPDATE wallets
+               SET balance_kes = balance_kes + $2, updated_at = NOW()
+               WHERE user_id = $1
+               RETURNING balance_kes`,
+              [req.user.sub, STREAK_REWARD_KES]
+            );
+            if (!walletUpdate.rowCount) throw new Error('Wallet record is missing for the streak reward.');
+            rewardEarnedToday = true;
+          }
+        }
+
+        await connection.query(
+          `UPDATE user_streaks
+           SET current_streak = $2, last_login_date = $3, updated_at = NOW()
+           WHERE user_id = $1`,
+          [req.user.sub, currentStreak, today]
+        );
+      }
+
+      const [rewards, totals] = await Promise.all([
+        connection.query(
+          `SELECT reward_usd, amount_kes, streak_day, created_at
+           FROM streak_reward_claims
+           WHERE user_id = $1
+           ORDER BY streak_day DESC
+           LIMIT 20`,
+          [req.user.sub]
+        ),
+        connection.query(
+          `SELECT COUNT(*)::int AS reward_count,
+                  COALESCE(SUM(amount_kes), 0) AS total_rewards_kes
+           FROM streak_reward_claims
+           WHERE user_id = $1`,
+          [req.user.sub]
+        ),
+      ]);
+      await connection.query('COMMIT');
+      return res.json({
+        streak: {
+          currentDays: currentStreak,
+          lastLoginDate: today,
+          rewardEarnedToday,
+          nextRewardInDays: currentStreak >= 7 ? 7 : 7 - currentStreak,
+          rewardUsd: STREAK_REWARD_USD,
+          rewardKes: STREAK_REWARD_KES,
+          timezone: STREAK_TIME_ZONE,
+          totalRewards: totals.rows[0].reward_count,
+          totalRewardsKes: totals.rows[0].total_rewards_kes,
+          rewards: rewards.rows,
+        },
+      });
+    } catch (error) {
+      await connection.query('ROLLBACK');
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  let streak = mockUserStreaks.find((item) => String(item.user_id) === String(req.user.sub));
+  if (!streak) {
+    streak = { user_id: req.user.sub, current_streak: 0, last_login_date: null };
+    mockUserStreaks.push(streak);
+  }
+  if (streak.last_login_date !== today) {
+    const daysSinceLogin = streak.last_login_date
+      ? getCalendarDayDifference(streak.last_login_date, today)
+      : 0;
+    currentStreak = daysSinceLogin === 1
+      ? (Number(streak.current_streak) >= 7 ? 1 : Number(streak.current_streak) + 1)
+      : 1;
+    if (currentStreak === 7) {
+      const wallet = getMockWalletByUserId(req.user.sub);
+      if (!wallet) return res.status(409).json({ message: 'Your wallet record is unavailable. Contact support.' });
+      wallet.balance_kes = Number(wallet.balance_kes) + STREAK_REWARD_KES;
+      mockStreakRewardClaims.unshift({
+        user_id: req.user.sub,
+        streak_day: today,
+        reward_usd: STREAK_REWARD_USD,
+        amount_kes: STREAK_REWARD_KES,
+        created_at: new Date().toISOString(),
+      });
+      rewardEarnedToday = true;
+    }
+    streak.current_streak = currentStreak;
+    streak.last_login_date = today;
+  } else {
+    currentStreak = Number(streak.current_streak);
+    rewardEarnedToday = mockStreakRewardClaims.some(
+      (claim) => String(claim.user_id) === String(req.user.sub) && claim.streak_day === today
+    );
+  }
+
+  const userRewards = mockStreakRewardClaims.filter((claim) => String(claim.user_id) === String(req.user.sub));
+  return res.json({
+    streak: {
+      currentDays: currentStreak,
+      lastLoginDate: today,
+      rewardEarnedToday,
+      nextRewardInDays: currentStreak >= 7 ? 7 : 7 - currentStreak,
+      rewardUsd: STREAK_REWARD_USD,
+      rewardKes: STREAK_REWARD_KES,
+      timezone: STREAK_TIME_ZONE,
+      totalRewards: userRewards.length,
+      totalRewardsKes: userRewards.reduce((sum, claim) => sum + Number(claim.amount_kes), 0),
+      rewards: userRewards.slice(0, 20),
+    },
   });
 });
 
