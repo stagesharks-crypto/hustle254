@@ -31,6 +31,12 @@ For the Vite frontend, set `VITE_API_BASE_URL` in the Render Static Site's envir
 
 Account balances are displayed from the user's `wallets` row. Task progress, referrals, activity, and admin counts are calculated from their corresponding database tables; missing records are shown as empty or unavailable rather than replaced by sample figures. Wallet transactions are recorded in `wallet_transactions`; account wallet summaries show pending, approved, rejected, and withdrawn amounts and refresh every 15 seconds. Historical transaction totals are not reconstructed from records created before that ledger existed.
 
+## Daily login streak rewards
+
+Users and posters receive one daily streak check-in automatically when their authenticated session opens. Check-ins are counted by calendar day in `Africa/Nairobi`; repeat checks on the same day do not increase the streak, and a missed day restarts it. Every seventh consecutive login credits `$0.023` (shown in the app with its KSh equivalent) to the account wallet. The reward is credited automatically once per seven-day streak; no claim action is required. Streak progress and reward history are stored in `user_streaks` and `streak_reward_claims`.
+
+Before deploying streak rewards to an existing database, apply `db/migrations/20261013_daily_streak_rewards.sql` (or apply the updated `db/schema.sql` to a new database). The API checks for these tables at startup and production will not start with the old schema.
+
 Free-tier caveat: Supabase currently includes 500 MB database storage, but pauses Free projects after one week of inactivity and does not include downloadable database backups. This is suitable for setup/testing; use a paid Supabase plan before relying on it for a live earnings product. Render's Free Postgres is a 30-day trial, so it is not the recommended persistent database.
 
 ## Hustle254 Task Publishing
