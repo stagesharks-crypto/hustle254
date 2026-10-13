@@ -3149,14 +3149,70 @@ button:focus-visible {
   gap: 7px;
 }
 
-.submission-proof-cell a {
+.submission-proof-link {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: #c5ed6f;
+  font: inherit;
   font-size: 0.76rem;
   font-weight: 650;
+  text-align: left;
+  cursor: pointer;
 }
 
-.submission-proof-cell a:hover {
+.submission-proof-link:hover {
   text-decoration: underline;
+}
+
+.proof-image-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(2, 6, 10, 0.82);
+}
+
+.proof-image-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: min(1000px, 94vw);
+  max-height: 92vh;
+  overflow: auto;
+  border: 1px solid rgba(197, 237, 111, 0.2);
+  background: #0d1816;
+}
+
+.proof-image-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.proof-image-header h2 {
+  margin: 6px 0;
+  color: #f0f7ef;
+  font-size: 1.25rem;
+}
+
+.proof-image-header p,
+.proof-image-error {
+  margin: 0;
+  color: #b2c1d4;
+}
+
+.proof-image-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  align-self: center;
+  object-fit: contain;
+  border-radius: 8px;
 }
 
 .poster-post-row {

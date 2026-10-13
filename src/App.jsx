@@ -1714,9 +1714,20 @@ function AdminPage({ session, onAuthenticated, onVerifyAdminPassword, taskPosts,
   const [catalog, setCatalog] = useState([])
   const [campaigns, setCampaigns] = useState([])
   const [section, setSection] = useState('Overview')
+  const [selectedProof, setSelectedProof] = useState(null)
+  const [proofImageError, setProofImageError] = useState(false)
   const [refreshVersion, setRefreshVersion] = useState(0)
   const [dataLoading, setDataLoading] = useState(true)
   const [dataError, setDataError] = useState('')
+
+  useEffect(() => {
+    if (!selectedProof) return undefined
+    function closeOnEscape(event) {
+      if (event.key === 'Escape') setSelectedProof(null)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [selectedProof])
 
   useEffect(() => {
     if (!session?.adminToken) return undefined
@@ -1929,7 +1940,16 @@ function AdminPage({ session, onAuthenticated, onVerifyAdminPassword, taskPosts,
                 <span>{formatKes(item.amount_kes)}</span>
                 <span className="submission-proof-cell">
                   {item.notes && <small>{item.notes}</small>}
-                  {item.image_url && <a href={item.image_url} target="_blank" rel="noreferrer">View submitted proof image</a>}
+                  {item.image_url && (
+                    <button
+                      type="button"
+                      className="submission-proof-link"
+                      onClick={() => {
+                        setProofImageError(false)
+                        setSelectedProof(item)
+                      }}
+                    >View submitted proof image</button>
+                  )}
                   {!item.notes && !item.image_url && <small>{item.proof_type || 'No proof details recorded'}</small>}
                 </span>
                 <span>{item.status}</span>
@@ -2053,6 +2073,35 @@ function AdminPage({ session, onAuthenticated, onVerifyAdminPassword, taskPosts,
             {!dataLoading && !dataError && campaigns.length === 0 && <p>No campaigns are recorded in the database.</p>}
           </div>
         </section>
+      )}
+
+      {selectedProof && (
+        <div className="proof-image-backdrop" onClick={() => setSelectedProof(null)}>
+          <section
+            className="proof-image-dialog panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="proof-image-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="proof-image-header">
+              <div>
+                <span className="eyebrow">Task submission proof</span>
+                <h2 id="proof-image-title">{selectedProof.task_title || 'Submitted proof image'}</h2>
+                <p>{selectedProof.user_name || selectedProof.user_email || 'Participant'}</p>
+              </div>
+              <button type="button" className="topbar-back" onClick={() => setSelectedProof(null)}>Close</button>
+            </header>
+            {proofImageError
+              ? <p className="proof-image-error" role="alert">This proof image could not be loaded. The stored image may be invalid or unavailable.</p>
+              : <img
+                  className="proof-image-preview"
+                  src={selectedProof.image_url}
+                  alt={`Proof submitted by ${selectedProof.user_name || 'participant'}`}
+                  onError={() => setProofImageError(true)}
+                />}
+          </section>
+        </div>
       )}
     </div>
   )
