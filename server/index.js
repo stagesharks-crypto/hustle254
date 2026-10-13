@@ -1138,7 +1138,17 @@ app.patch('/api/admin/task-posts/:id/status', requireAuth, requireAdmin, async (
 
 app.post('/api/tasks/:id/submit', requireAuth, async (req, res) => {
   const { id } = req.params;
-  const { notes = '', proofType = 'camera_capture', imageUrl = '' } = req.body || {};
+  const rawBody = req.body || {};
+  const notes = typeof rawBody.notes === 'string' ? rawBody.notes : (typeof rawBody.note === 'string' ? rawBody.note : '');
+  const proofType = ['camera_capture', 'notes'].includes(rawBody.proofType)
+    ? rawBody.proofType
+    : (['camera_capture', 'notes'].includes(rawBody.proof_type) ? rawBody.proof_type : 'camera_capture');
+  const imageUrl = typeof rawBody.imageUrl === 'string'
+    ? rawBody.imageUrl
+    : (typeof rawBody.image_data_url === 'string'
+      ? rawBody.image_data_url
+      : (typeof rawBody.imageDataUrl === 'string' ? rawBody.imageDataUrl : ''));
+
   if (typeof notes !== 'string' || notes.length > 2000) {
     return res.status(400).json({ message: 'Proof notes must be 2,000 characters or fewer.' });
   }
@@ -1151,26 +1161,60 @@ app.post('/api/tasks/:id/submit', requireAuth, async (req, res) => {
 
   let submission;
   if (databaseOnline) {
-    const result = await pool.query(
-      `INSERT INTO task_submissions (user_id, task_id, task_post_id, proof_type, notes, image_url, status)
-       SELECT $1, tasks.id, NULL, $3, $4, $5, 'pending_review'
-       FROM tasks WHERE tasks.id = $2 AND tasks.active = TRUE
-       UNION ALL
-       SELECT $1, NULL, task_posts.id, $3, $4, $5, 'pending_review'
-       FROM task_posts
-       WHERE task_posts.id = $2 AND task_posts.status = 'approved' AND task_posts.due_date >= CURRENT_DATE
-       RETURNING *`,
-      [req.user.sub, id, proofType, notes, imageUrl]
-    );
-    [submission] = result.rows;
+    try {
+      const result = await pool.query(
+        `INSERT INTO task_submissions (user_id, task_id, task_post_id, proof_type, notes, image_url, status)
+         SELECT $1, tasks.id, NULL, $3, $4, $5, 'pending_review'
+         FROM tasks WHERE tasks.id = $2 AND tasks.active = TRUE
+         UNION ALL
+         SELECT $1, NULL, task_posts.id, $3, $4, $5, 'pending_review'
+         FROM task_posts
+         WHERE task_posts.id = $2 AND task_posts.status = 'approved' AND task_posts.due_date >= CURRENT_DATE
+         RETURNING *`,
+        [req.user.sub, id, proofType, notes, imageUrl]
+      );
+      [submission] = result.rows;
+    } catch (error) {
+      console.error('Task proof submission failed.', {
+        taskId: id,
+        userId: req.user.sub,
+        code: error.code,
+        column: error.column,
+        constraint: error.constraint,
+      });
+      if (error.code === '23502' && error.column === 'task_id') {
+        return res.status(503).json({
+          code: 'TASK_SUBMISSION_SCHEMA_OUTDATED',
+          message: 'Task submissions are temporarily unavailable. The administrator must apply the task submission database migration, then try again.',
+        });
+      }
+      return res.status(500).json({
+        code: 'TASK_SUBMISSION_FAILED',
+        message: 'We could not save your proof right now. Please try again shortly.',
+      });
+    }
   } else {
     const task = mockTaskPosts.find((item) => item.id === id && item.status === 'approved');
     if (task) {
       return res.status(400).json({ message: 'This task cannot accept submissions in development fallback mode.' });
     }
+    const localSubmission = {
+      id: `submission-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      user_id: req.user.sub,
+      task_id: id,
+      task_post_id: null,
+      proof_type: proofType,
+      notes,
+      image_url: imageUrl,
+      status: 'pending_review',
+      created_at: new Date().toISOString(),
+      reviewed_at: null,
+    };
+    mockSubmissions.unshift(localSubmission);
+    submission = localSubmission;
   }
 
-  if (!databaseOnline || !submission) {
+  if (!submission) {
     return res.status(404).json({ message: 'Active database task not found.' });
   }
 
