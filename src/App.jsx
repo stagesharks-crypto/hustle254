@@ -146,6 +146,13 @@ const trustChecks = [
 
 function App() {
   const [currentPage, setCurrentPageState] = useState('Home')
+  const [theme, setTheme] = useState(() => {
+    try {
+      return localStorage.getItem('hustle254-theme') === 'light' ? 'light' : 'dark'
+    } catch {
+      return 'dark'
+    }
+  })
   const pageHistory = useRef(['Home'])
   const [canGoBack, setCanGoBack] = useState(false)
   const [selectedTaskId, setSelectedTaskId] = useState('')
@@ -170,6 +177,16 @@ function App() {
       return null
     }
   })
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    document.documentElement.style.colorScheme = theme
+    try {
+      localStorage.setItem('hustle254-theme', theme)
+    } catch {
+      // The selected theme still applies for this session if storage is unavailable.
+    }
+  }, [theme])
 
   function setCurrentPage(page, { replace = false } = {}) {
     const history = pageHistory.current
@@ -569,6 +586,19 @@ function App() {
             <span /><span /><span />
           </button>}
           <div className="topbar-context">{effectivePage === 'Login' || effectivePage === 'Sign up' ? 'Your account' : effectivePage}</div>
+
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={() => setTheme((currentTheme) => currentTheme === 'dark' ? 'light' : 'dark')}
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            aria-pressed={theme === 'light'}
+            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          >
+            <span className="theme-toggle-icon" aria-hidden="true">{theme === 'dark' ? '☼' : '☾'}</span>
+            <span className="theme-toggle-label">{theme === 'dark' ? 'Light' : 'Dark'}</span>
+            <span className="theme-toggle-track" aria-hidden="true"><span /></span>
+          </button>
 
           {session ? (
             <div className="topbar-profile-wrap">

@@ -3237,6 +3237,701 @@ button:disabled {
   cursor: pointer;
 }
 
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 40px;
+  padding: 5px 10px;
+  border: 1px solid rgba(197, 237, 111, 0.2);
+  border-radius: 999px;
+  background: rgba(197, 237, 111, 0.06);
+  color: #eaf3e1;
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.theme-toggle:hover {
+  transform: translateY(-1px);
+  border-color: rgba(197, 237, 111, 0.48);
+  background: rgba(197, 237, 111, 0.12);
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid #c5ed6f;
+  outline-offset: 3px;
+}
+
+.theme-toggle-icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(197, 237, 111, 0.13);
+  color: #c5ed6f;
+  font-size: 1rem;
+}
+
+.theme-toggle-track {
+  position: relative;
+  width: 31px;
+  height: 18px;
+  border: 1px solid rgba(197, 237, 111, 0.36);
+  border-radius: 999px;
+  background: rgba(197, 237, 111, 0.12);
+}
+
+.theme-toggle-track > span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #c5ed6f;
+  transition: transform 0.2s ease;
+}
+
+html[data-theme='light'] .theme-toggle-track > span {
+  transform: translateX(13px);
+}
+
+html[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f4f6f0;
+  --bg-2: #e9eee4;
+  --panel: #ffffff;
+  --panel-soft: #f7f9f5;
+  --line: #d8e0d3;
+  --text-main: #19251d;
+  --text-soft: #405247;
+  --muted: #637268;
+  --gold: #557b20;
+  --gold-deep: #3e6114;
+  --success: #176b3a;
+  --danger: #b42318;
+  background: #f4f6f0;
+  color: #19251d;
+}
+
+html[data-theme='light'] body {
+  background:
+    radial-gradient(ellipse at 12% 4%, rgba(185, 210, 136, 0.2), transparent 32%),
+    linear-gradient(135deg, #f6f8f3 0%, #eef2e9 55%, #f7f8f4 100%);
+  color: var(--text-main);
+}
+
+html[data-theme='light'] .app-shell {
+  color: var(--text-main);
+}
+
+html[data-theme='light'] .app-content :where(h1, h2, h3, h4, p, label, small, strong, span, li, dt, dd, th, td, legend) {
+  color: var(--text-main);
+}
+
+html[data-theme='light'] .side-menu {
+  background: rgba(255, 255, 255, 0.96);
+  border-right-color: #dce4d7;
+  box-shadow: 8px 0 28px rgba(36, 54, 32, 0.045);
+}
+
+html[data-theme='light'] .brand-name,
+html[data-theme='light'] .side-nav-link,
+html[data-theme='light'] .topbar-context,
+html[data-theme='light'] .profile-account-copy strong {
+  color: #1d2a20;
+}
+
+html[data-theme='light'] .brand-tag,
+html[data-theme='light'] .side-nav-label,
+html[data-theme='light'] .profile-account-copy small,
+html[data-theme='light'] .topbar-context {
+  color: #647267;
+}
+
+html[data-theme='light'] .side-nav-link:hover,
+html[data-theme='light'] .side-nav-link.active {
+  color: #355313;
+  background: #eef4e4;
+  border-color: #dce8c9;
+}
+
+html[data-theme='light'] .side-nav-icon,
+html[data-theme='light'] .side-nav-link.active .side-nav-icon {
+  border-color: #d3dfc2;
+  color: #4d711b;
+}
+
+html[data-theme='light'] .side-menu-footer {
+  border-color: #dce8c9;
+  background: #f3f7eb;
+}
+
+html[data-theme='light'] .side-menu-footer p {
+  color: #405247;
+}
+
+html[data-theme='light'] .topbar {
+  background: linear-gradient(#f4f6f0 80%, rgba(244, 246, 240, 0));
+}
+
+html[data-theme='light'] .topbar-back,
+html[data-theme='light'] .menu-toggle {
+  border-color: #d8e0d3;
+  background: rgba(255, 255, 255, 0.8);
+  color: #26372b;
+}
+
+html[data-theme='light'] .menu-toggle span {
+  background: #34463a;
+}
+
+html[data-theme='light'] .topbar-account {
+  border-color: #c8d9ad;
+  background: #f0f5e7;
+  color: #3f6119;
+}
+
+html[data-theme='light'] .topbar-profile {
+  border-color: #d2dfc2;
+  background: #f2f6e9;
+  color: #253329;
+}
+
+html[data-theme='light'] .theme-toggle {
+  border-color: #d4dfc6;
+  background: #fff;
+  color: #243329;
+}
+
+html[data-theme='light'] .theme-toggle-icon {
+  background: #edf3e4;
+  color: #4b6d1b;
+}
+
+html[data-theme='light'] .theme-toggle-track {
+  border-color: #c4d4ad;
+  background: #edf3e4;
+}
+
+html[data-theme='light'] .theme-toggle-track > span {
+  background: #547922;
+}
+
+html[data-theme='light'] .page-top {
+  border-bottom-color: #dce3d7;
+}
+
+html[data-theme='light'] .page-top .eyebrow,
+html[data-theme='light'] .auth-panel > .eyebrow,
+html[data-theme='light'] .eyebrow {
+  background: #eef4e4;
+  color: #49681e;
+}
+
+html[data-theme='light'] .page-top h1,
+html[data-theme='light'] .hero-copy h1,
+html[data-theme='light'] .home-section-intro h2,
+html[data-theme='light'] .home-how h2 {
+  color: #18251d;
+}
+
+html[data-theme='light'] .page-top p,
+html[data-theme='light'] .feature-card p,
+html[data-theme='light'] .step-card p,
+html[data-theme='light'] .task-card p,
+html[data-theme='light'] .hero-copy p,
+html[data-theme='light'] .welcome-copy > p,
+html[data-theme='light'] .home-how-steps p {
+  color: #4c5c51;
+}
+
+html[data-theme='light'] .panel,
+html[data-theme='light'] .stat-card,
+html[data-theme='light'] .feature-card,
+html[data-theme='light'] .step-card,
+html[data-theme='light'] .split-card,
+html[data-theme='light'] .task-card,
+html[data-theme='light'] .auth-panel,
+html[data-theme='light'] .legal-panel,
+html[data-theme='light'] .proof-form-panel,
+html[data-theme='light'] .proof-sidebar,
+html[data-theme='light'] .wallet-summary,
+html[data-theme='light'] .payout-methods,
+html[data-theme='light'] .referral-panel,
+html[data-theme='light'] .admin-data-panel,
+html[data-theme='light'] .task-list-panel,
+html[data-theme='light'] .task-detail-panel,
+html[data-theme='light'] .task-review-panel,
+html[data-theme='light'] .wallet-transparency,
+html[data-theme='light'] .streak-hero,
+html[data-theme='light'] .streak-history-panel {
+  border-color: #dce3d7;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(35, 52, 32, 0.065);
+  color: #19251d;
+}
+
+html[data-theme='light'] .feature-card,
+html[data-theme='light'] .step-card {
+  border-top-color: #b6ce8a;
+}
+
+html[data-theme='light'] .feature-card:hover,
+html[data-theme='light'] .step-card:hover,
+html[data-theme='light'] .feature-card-action:hover {
+  border-top-color: #739b36;
+  background: #f7faF2;
+}
+
+html[data-theme='light'] .feature-card h3,
+html[data-theme='light'] .task-card h3,
+html[data-theme='light'] .step-card h3,
+html[data-theme='light'] .split-card h3,
+html[data-theme='light'] .panel h3,
+html[data-theme='light'] .admin-data-panel h2,
+html[data-theme='light'] .poster-account-panel h2,
+html[data-theme='light'] .poster-billing-panel h2 {
+  color: #1b2a20;
+}
+
+html[data-theme='light'] .tag,
+html[data-theme='light'] .task-tag,
+html[data-theme='light'] .feature-card-link,
+html[data-theme='light'] .task-amount {
+  border-color: #d9e6c7;
+  background: #f0f5e7;
+  color: #4c6e1e;
+}
+
+html[data-theme='light'] .btn-primary,
+html[data-theme='light'] .welcome-primary {
+  border-color: #4d711b;
+  background: #4d711b;
+  color: #fff;
+}
+
+html[data-theme='light'] .btn-primary:hover,
+html[data-theme='light'] .welcome-primary:hover {
+  border-color: #3d5e13;
+  background: #3d5e13;
+  color: #fff;
+}
+
+html[data-theme='light'] .btn-secondary {
+  border-color: #d2ddc7;
+  background: #f7f9f4;
+  color: #2d3d31;
+}
+
+html[data-theme='light'] .btn-secondary:hover {
+  border-color: #b9cba1;
+  background: #eef4e5;
+  color: #263d22;
+}
+
+html[data-theme='light'] .welcome-copy {
+  background: radial-gradient(circle at top left, rgba(174, 205, 123, 0.2), transparent 38%), #fff;
+  border-color: #dce3d7;
+}
+
+html[data-theme='light'] .welcome-kicker,
+html[data-theme='light'] .home-overline,
+html[data-theme='light'] .welcome-copy h1 em,
+html[data-theme='light'] .home-how h2 em,
+html[data-theme='light'] .welcome-note span,
+html[data-theme='light'] .home-how-steps > div > span {
+  color: #52771e;
+}
+
+html[data-theme='light'] .welcome-kicker > span {
+  background: #739b36;
+  box-shadow: 0 0 0 5px rgba(115, 155, 54, 0.12);
+}
+
+html[data-theme='light'] .welcome-secondary,
+html[data-theme='light'] .home-how-link {
+  color: #364b39;
+}
+
+html[data-theme='light'] .welcome-secondary:hover,
+html[data-theme='light'] .home-how-link:hover {
+  color: #52771e;
+}
+
+html[data-theme='light'] .welcome-payments,
+html[data-theme='light'] .welcome-note,
+html[data-theme='light'] .home-how-steps > div {
+  border-color: #dce3d7;
+  color: #536258;
+}
+
+html[data-theme='light'] .welcome-payments strong {
+  color: #26382b;
+}
+
+html[data-theme='light'] .opportunity-row {
+  border-bottom-color: #dce3d7;
+  color: #1e2b22;
+}
+
+html[data-theme='light'] .opportunity-number,
+html[data-theme='light'] .opportunity-arrow {
+  color: #5b8126;
+}
+
+html[data-theme='light'] .opportunity-copy small {
+  color: #607066;
+}
+
+html[data-theme='light'] .history-row,
+html[data-theme='light'] .method-row,
+html[data-theme='light'] .tier-row,
+html[data-theme='light'] .wallet-ledger-row,
+html[data-theme='light'] .streak-reward-row {
+  border-color: #e2e8de;
+}
+
+html[data-theme='light'] .history-row strong,
+html[data-theme='light'] .method-row strong,
+html[data-theme='light'] .tier-row strong,
+html[data-theme='light'] .wallet-ledger-main strong,
+html[data-theme='light'] .streak-reward-row > div strong,
+html[data-theme='light'] .streak-reward-row > strong {
+  color: #26372b;
+}
+
+html[data-theme='light'] .history-row small,
+html[data-theme='light'] .method-row small,
+html[data-theme='light'] .tier-row small,
+html[data-theme='light'] .wallet-ledger-main small {
+  color: #65746a;
+}
+
+html[data-theme='light'] input,
+html[data-theme='light'] textarea,
+html[data-theme='light'] select,
+html[data-theme='light'] .wallet-transaction-form input,
+html[data-theme='light'] .wallet-transaction-form select,
+html[data-theme='light'] .wallet-admin-filters select,
+html[data-theme='light'] .post-form-grid select {
+  border-color: #cfd9cc;
+  background: #fff;
+  color: #1d2b21;
+  color-scheme: light;
+}
+
+html[data-theme='light'] input::placeholder,
+html[data-theme='light'] textarea::placeholder {
+  color: #77857a;
+  opacity: 1;
+}
+
+html[data-theme='light'] select option {
+  background: #fff;
+  color: #1d2b21;
+}
+
+html[data-theme='light'] .form-grid label,
+html[data-theme='light'] .proof-form label,
+html[data-theme='light'] .wallet-transaction-form label {
+  color: #2d4033;
+}
+
+html[data-theme='light'] .queue-head,
+html[data-theme='light'] .queue-row,
+html[data-theme='light'] .wallet-review-row,
+html[data-theme='light'] .task-post-review-card,
+html[data-theme='light'] .review-post-card {
+  border-color: #dce3d7;
+  background: #fff;
+  color: #25352a;
+}
+
+html[data-theme='light'] .queue-row:hover,
+html[data-theme='light'] .task-select-card:hover,
+html[data-theme='light'] .task-select-card.active {
+  border-color: #c7d9ae;
+  background: #f2f6eb;
+  color: #25352a;
+}
+
+html[data-theme='light'] .queue-row small,
+html[data-theme='light'] .review-post-details > div > span,
+html[data-theme='light'] .wallet-review-details > small,
+html[data-theme='light'] .wallet-review-intro,
+html[data-theme='light'] .wallet-form-note,
+html[data-theme='light'] .review-disclaimer {
+  color: #627167;
+}
+
+html[data-theme='light'] .wallet-summary {
+  background: linear-gradient(135deg, #f1f6e9, #fff 75%);
+}
+
+html[data-theme='light'] .wallet-summary > span,
+html[data-theme='light'] .wallet-summary > small {
+  color: #596b5e;
+}
+
+html[data-theme='light'] .wallet-summary strong {
+  color: #213325;
+}
+
+html[data-theme='light'] .wallet-transparency {
+  background: linear-gradient(135deg, #f1f6e9, #fff 54%);
+}
+
+html[data-theme='light'] .wallet-balance-card,
+html[data-theme='light'] .wallet-admin-stat,
+html[data-theme='light'] .streak-day-card {
+  border-color: #dce4d6;
+  background: #f9fbf7;
+}
+
+html[data-theme='light'] .wallet-balance-card > span,
+html[data-theme='light'] .wallet-admin-stat > span,
+html[data-theme='light'] .streak-day-card > span,
+html[data-theme='light'] .streak-day-card > small,
+html[data-theme='light'] .streak-reset-note,
+html[data-theme='light'] .streak-lifetime-total > small,
+html[data-theme='light'] .streak-empty {
+  color: #65746a;
+}
+
+html[data-theme='light'] .wallet-balance-card strong,
+html[data-theme='light'] .wallet-admin-stat strong {
+  color: #233528;
+}
+
+html[data-theme='light'] .wallet-balance-approved strong,
+html[data-theme='light'] .status-approved {
+  color: #176b3a;
+}
+
+html[data-theme='light'] .wallet-balance-pending strong,
+html[data-theme='light'] .status-pending_review {
+  color: #785800;
+}
+
+html[data-theme='light'] .wallet-balance-rejected strong,
+html[data-theme='light'] .status-rejected {
+  color: #a52820;
+}
+
+html[data-theme='light'] .wallet-balance-withdrawn strong,
+html[data-theme='light'] .wallet-admin-stat small {
+  color: #4d711b;
+}
+
+html[data-theme='light'] .status-badge.status-approved {
+  border-color: #b7dec4;
+  background: #edf8f0;
+}
+
+html[data-theme='light'] .status-badge.status-pending_review {
+  border-color: #e6d59c;
+  background: #fff8e5;
+}
+
+html[data-theme='light'] .status-badge.status-rejected {
+  border-color: #ecc4bf;
+  background: #fff0ee;
+}
+
+html[data-theme='light'] .admin-section-tab {
+  border-color: #d8e0d3;
+  background: #fff;
+  color: #435449;
+}
+
+html[data-theme='light'] .admin-section-tab:hover,
+html[data-theme='light'] .admin-section-tab.active {
+  border-color: #c8d9b1;
+  background: #eef4e4;
+  color: #42611b;
+}
+
+html[data-theme='light'] .admin-stat-link:hover,
+html[data-theme='light'] .admin-stat-link:focus-visible {
+  border-color: #b7cb9d;
+  background: #f6f9f1;
+}
+
+html[data-theme='light'] .admin-stat-link small {
+  color: #526258;
+}
+
+html[data-theme='light'] .form-error {
+  border-color: #e7c2bd;
+  background: #fff0ee;
+  color: #972d24;
+}
+
+html[data-theme='light'] .submission-success {
+  border-color: #b9dec5;
+  background: #eef8f0;
+  color: #1b6337;
+}
+
+html[data-theme='light'] .warning-banner {
+  border-color: #e8d8ac;
+  background: #fff8e8;
+  color: #705514;
+}
+
+html[data-theme='light'] .streak-hero {
+  background:
+    radial-gradient(circle at 85% 35%, rgba(167, 200, 112, 0.24), transparent 32%),
+    linear-gradient(130deg, #f0f5e7, #fff 68%);
+}
+
+html[data-theme='light'] .streak-hero h2,
+html[data-theme='light'] .streak-hero-copy > p {
+  color: #26372b;
+}
+
+html[data-theme='light'] .streak-kicker,
+html[data-theme='light'] .streak-day-card.reward-day > span,
+html[data-theme='light'] .streak-day-card.reward-day > small,
+html[data-theme='light'] .streak-prize > strong {
+  color: #4c6e1e;
+}
+
+html[data-theme='light'] .streak-count {
+  color: #253c23;
+}
+
+html[data-theme='light'] .streak-count small,
+html[data-theme='light'] .streak-prize > span,
+html[data-theme='light'] .streak-prize > small {
+  color: #647267;
+}
+
+html[data-theme='light'] .streak-prize {
+  border-color: #d5e1c7;
+  background: #f9fbf6;
+}
+
+html[data-theme='light'] .streak-prize > strong small {
+  color: #24352a;
+}
+
+html[data-theme='light'] .streak-visual {
+  border-color: #d4e1c4;
+  background: radial-gradient(circle, rgba(181, 207, 139, 0.24), rgba(181, 207, 139, 0.03) 68%);
+}
+
+html[data-theme='light'] .streak-visual > span,
+html[data-theme='light'] .streak-day-card.completed > strong,
+html[data-theme='light'] .streak-reward-icon {
+  color: #52771e;
+}
+
+html[data-theme='light'] .streak-visual > small {
+  color: #405247;
+}
+
+html[data-theme='light'] .streak-section-heading h2 {
+  color: #1d2b21;
+}
+
+html[data-theme='light'] .streak-day-card.completed {
+  border-color: #d0dfbd;
+  background: #f1f6e9;
+}
+
+html[data-theme='light'] .streak-day-card.completed > strong {
+  border-color: #ccddb6;
+  background: #e7f0d9;
+}
+
+html[data-theme='light'] .streak-day-card.completed > small {
+  color: #4f6154;
+}
+
+html[data-theme='light'] .streak-day-card.reward-day {
+  border-color: #c8d9ad;
+}
+
+html[data-theme='light'] .streak-lifetime-total > strong,
+html[data-theme='light'] .streak-wallet-link {
+  color: #4d711b;
+}
+
+html[data-theme='light'] .streak-reward-icon {
+  background: #edf4e3;
+}
+
+html[data-theme='light'] .site-footer {
+  border-top-color: #dce3d7;
+  color: #536258;
+}
+
+html[data-theme='light'] .footer-links button {
+  color: #405247;
+}
+
+html[data-theme='light'] .profile-menu-popover {
+  border-color: #dce3d7;
+  background: #fff;
+  box-shadow: 0 16px 40px rgba(35, 52, 32, 0.14);
+}
+
+html[data-theme='light'] .profile-menu-item {
+  color: #26372b;
+}
+
+html[data-theme='light'] .profile-menu-item:hover {
+  background: #f1f5eb;
+}
+
+html[data-theme='light'] .profile-menu-danger {
+  color: #a52820;
+}
+
+html[data-theme='light'] .proof-image-dialog {
+  border-color: #d5dfd0;
+  background: #fff;
+}
+
+html[data-theme='light'] .task-meta-box,
+html[data-theme='light'] .copy-box,
+html[data-theme='light'] .task-select-card {
+  border-color: #dce3d7;
+  background: #fff;
+  color: #34473a;
+}
+
+html[data-theme='light'] .task-select-card h3 {
+  color: #25352a;
+}
+
+html[data-theme='light'] .task-select-card small {
+  color: #65746a;
+}
+
+html[data-theme='light'] .task-select-card.active {
+  border-color: #bdcf9f;
+  background: #f1f6e9;
+}
+
+@media (max-width: 680px) {
+  .theme-toggle {
+    gap: 6px;
+    min-height: 38px;
+    padding: 4px 8px;
+  }
+
+  .theme-toggle-label,
+  .theme-toggle-track {
+    display: none;
+  }
+}
+
 @media (max-width: 680px) {
   .streak-hero {
     grid-template-columns: minmax(0, 1fr);
