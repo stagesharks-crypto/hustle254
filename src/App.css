@@ -2015,6 +2015,15 @@ main {
   transition: border-color 0.2s ease, transform 0.2s ease, background 0.2s ease;
 }
 
+.feature-card-action {
+  display: block;
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .feature-card:hover,
 .step-card:hover {
   transform: translateY(-3px);
@@ -2038,6 +2047,21 @@ main {
 .task-card p {
   color: #aebcb3;
   line-height: 1.65;
+}
+
+.feature-card-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 14px;
+  color: #c5ed6f;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.feature-card-action:focus-visible {
+  outline: 2px solid #c5ed6f;
+  outline-offset: 3px;
 }
 
 .tag,

@@ -379,6 +379,18 @@ function App() {
         return <HowItWorksPage />
       case 'Features':
         return <FeaturesPage setCurrentPage={setCurrentPage} session={session} />
+      case 'Wallet transparency':
+        return (
+          <AdminPage
+            initialSection="Wallet transparency"
+            session={session}
+            onAuthenticated={handleAdminAuthenticated}
+            onVerifyAdminPassword={handleAdminPassword}
+            taskPosts={taskPosts}
+            error={taskPostError}
+            onModerateTaskPost={moderateTaskPost}
+          />
+        )
       case 'Tasks':
         return <TasksPage tasks={tasks} selectedTask={selectedTask} setSelectedTask={setSelectedTaskId} loading={tasksLoading} error={tasksError} session={session} />
       case 'Post a task':
@@ -717,6 +729,10 @@ function HowItWorksPage() {
 }
 
 function FeaturesPage({ setCurrentPage, session }) {
+  function openWallet() {
+    setCurrentPage(session?.user?.role === 'admin' ? 'Wallet transparency' : 'Wallet')
+  }
+
   return (
     <div className="page-wrap">
       <PageHeader
@@ -727,16 +743,31 @@ function FeaturesPage({ setCurrentPage, session }) {
 
       <div className="feature-grid feature-grid-large">
         {featureCards.map((feature) => (
-          <article key={feature.title} className="feature-card panel">
-            <span className="tag">{feature.tag}</span>
-            <h3>{feature.title}</h3>
-            <p>{feature.text}</p>
-            {feature.title === 'Admin control center' && session?.user?.role === 'admin' && (
-              <button type="button" className="btn btn-secondary feature-action" onClick={() => setCurrentPage('Admin')}>
-                Open admin dashboard
-              </button>
-            )}
-          </article>
+          feature.title === 'Wallet transparency' ? (
+            <button
+              key={feature.title}
+              type="button"
+              className="feature-card feature-card-action panel"
+              onClick={openWallet}
+              aria-label={session?.user?.role === 'admin' ? 'Open admin wallet transparency' : 'Open wallet'}
+            >
+              <span className="tag">{feature.tag}</span>
+              <h3>{feature.title}</h3>
+              <p>{feature.text}</p>
+              <span className="feature-card-link">Open wallet <span aria-hidden="true">→</span></span>
+            </button>
+          ) : (
+            <article key={feature.title} className="feature-card panel">
+              <span className="tag">{feature.tag}</span>
+              <h3>{feature.title}</h3>
+              <p>{feature.text}</p>
+              {feature.title === 'Admin control center' && session?.user?.role === 'admin' && (
+                <button type="button" className="btn btn-secondary feature-action" onClick={() => setCurrentPage('Admin')}>
+                  Open admin dashboard
+                </button>
+              )}
+            </article>
+          )
         ))}
       </div>
     </div>
@@ -1727,7 +1758,7 @@ function AdminAccessGate({ onVerifyAdminPassword }) {
   )
 }
 
-function AdminPage({ session, onAuthenticated, onVerifyAdminPassword, taskPosts, error, onModerateTaskPost }) {
+function AdminPage({ session, onAuthenticated, onVerifyAdminPassword, taskPosts, error, onModerateTaskPost, initialSection = 'Overview' }) {
   const [workingId, setWorkingId] = useState('')
   const [actionError, setActionError] = useState('')
   const [overview, setOverview] = useState(null)
@@ -1738,7 +1769,7 @@ function AdminPage({ session, onAuthenticated, onVerifyAdminPassword, taskPosts,
   const [users, setUsers] = useState([])
   const [catalog, setCatalog] = useState([])
   const [campaigns, setCampaigns] = useState([])
-  const [section, setSection] = useState('Overview')
+  const [section, setSection] = useState(initialSection)
   const [selectedProof, setSelectedProof] = useState(null)
   const [proofImageError, setProofImageError] = useState(false)
   const [refreshVersion, setRefreshVersion] = useState(0)
