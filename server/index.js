@@ -1164,12 +1164,12 @@ app.post('/api/tasks/:id/submit', requireAuth, async (req, res) => {
     try {
       const result = await pool.query(
         `INSERT INTO task_submissions (user_id, task_id, task_post_id, proof_type, notes, image_url, status)
-         SELECT $1, tasks.id, NULL, $3, $4, $5, 'pending_review'
-         FROM tasks WHERE tasks.id = $2 AND tasks.active = TRUE
+         SELECT $1::uuid, tasks.id, NULL::uuid, $3::text, $4::text, $5::text, 'pending_review'
+         FROM tasks WHERE tasks.id = $2::uuid AND tasks.active = TRUE
          UNION ALL
-         SELECT $1, NULL, task_posts.id, $3, $4, $5, 'pending_review'
+         SELECT $1::uuid, NULL::uuid, task_posts.id, $3::text, $4::text, $5::text, 'pending_review'
          FROM task_posts
-         WHERE task_posts.id = $2 AND task_posts.status = 'approved' AND task_posts.due_date >= CURRENT_DATE
+         WHERE task_posts.id = $2::uuid AND task_posts.status = 'approved' AND task_posts.due_date >= CURRENT_DATE
          RETURNING *`,
         [req.user.sub, id, proofType, notes, imageUrl]
       );
