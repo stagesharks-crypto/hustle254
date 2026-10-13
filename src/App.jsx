@@ -769,13 +769,17 @@ function TasksPage({ tasks, selectedTask, setSelectedTask, loading, error, sessi
           reader.readAsDataURL(image)
         })
       }
+      const proofType = imageUrl ? 'camera_capture' : 'notes'
       const result = await apiRequest(`/tasks/${encodeURIComponent(selectedTask.id)}/submit`, {
         method: 'POST',
         token: session.token,
         body: JSON.stringify({
           notes: String(formData.get('notes') || ''),
-          proofType: imageUrl ? 'camera_capture' : 'notes',
+          proofType,
+          proof_type: proofType,
           imageUrl,
+          image_data_url: imageUrl,
+          imageDataUrl: imageUrl,
         }),
       })
       setProofSuccess(result.message)
