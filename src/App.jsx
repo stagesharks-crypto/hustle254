@@ -1137,6 +1137,7 @@ function PosterPage({ session, setCurrentPage }) {
 function WalletPage({ session }) {
   const [dashboard, setDashboard] = useState(null)
   const [transactions, setTransactions] = useState([])
+  const [transactionSummary, setTransactionSummary] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [mode, setMode] = useState(session.user.role === 'poster' ? 'deposit' : 'withdraw')
@@ -1159,6 +1160,7 @@ function WalletPage({ session }) {
         if (!active) return
         setDashboard(walletData)
         setTransactions(transactionData.transactions)
+        setTransactionSummary(transactionData.summary)
         setError('')
       } catch (requestError) {
         if (active) setError(requestError.message)
@@ -1195,6 +1197,7 @@ function WalletPage({ session }) {
       ])
       setDashboard(walletData)
       setTransactions(transactionData.transactions)
+      setTransactionSummary(transactionData.summary)
     } catch (requestError) {
       setError(requestError.message)
     } finally {
@@ -1221,14 +1224,31 @@ function WalletPage({ session }) {
       {error && <div className="form-error" role="alert">{error}</div>}
       {success && <div className="submission-success" role="status">{success}</div>}
       {loading && <p>Loading wallet from your account…</p>}
-      <div className="wallet-grid">
-        <div className="panel wallet-summary">
-          <span>Available balance</span>
-          <strong>{dashboard?.wallet ? formatKes(dashboard.wallet.balance_kes) : 'Not recorded'}</strong>
-          <small>Pending / reserved balance: {dashboard?.wallet ? formatKes(dashboard.wallet.pending_kes) : 'Not recorded'}</small>
-          <small>Withdrawn: {dashboard?.wallet ? formatKes(dashboard.wallet.withdrawn_kes) : 'Not recorded'}</small>
+      <section className="wallet-transparency" aria-label="Wallet balance transparency">
+        <div className="wallet-transparency-heading">
+          <div><span className="wallet-live-indicator" /> Live wallet ledger</div>
+          <small>Balances refresh automatically every 15 seconds</small>
         </div>
+        <div className="wallet-balance-grid">
+          {[
+            ['Available', dashboard?.wallet ? formatKes(dashboard.wallet.balance_kes) : 'Not recorded', 'Ready to withdraw', 'available'],
+            ['Deposits pending', transactionSummary ? formatKes(transactionSummary.pending_deposits_kes) : '—', 'Awaiting verification', 'pending'],
+            ['Deposits approved', transactionSummary ? formatKes(transactionSummary.approved_deposits_kes) : '—', 'Verified funds received', 'approved'],
+            ['Deposits rejected', transactionSummary ? formatKes(transactionSummary.rejected_deposits_kes) : '—', 'Not credited to balance', 'rejected'],
+            ['Withdrawals pending', transactionSummary ? formatKes(transactionSummary.pending_withdrawals_kes) : '—', 'Reserved for review', 'pending'],
+            ['Withdrawals rejected', transactionSummary ? formatKes(transactionSummary.rejected_withdrawals_kes) : '—', 'Returned to available', 'rejected'],
+            ['Total withdrawn', dashboard?.wallet ? formatKes(dashboard.wallet.withdrawn_kes) : transactionSummary ? formatKes(transactionSummary.withdrawn_kes) : '—', 'Manually settled payouts', 'withdrawn'],
+          ].map(([label, value, detail, kind]) => (
+            <article className={`wallet-balance-card wallet-balance-${kind}`} key={label}>
+              <span>{label}</span>
+              <strong>{value}</strong>
+              <small>{detail}</small>
+            </article>
+          ))}
+        </div>
+      </section>
 
+      <div className="wallet-grid wallet-payment-grid">
         <div className="panel payout-methods">
           <h3>{isPoster ? 'Poster deposits' : 'Wallet controls'}</h3>
           {isPoster
@@ -1289,16 +1309,20 @@ function WalletPage({ session }) {
       </section>
 
       <section className="panel wallet-transactions-panel">
-        <h3>Wallet transaction history</h3>
+        <div className="wallet-history-heading">
+          <div><h3>Wallet transaction history</h3><p>Every request stays visible with its latest review status.</p></div>
+          <span>{transactions.length} recent {transactions.length === 1 ? 'record' : 'records'}</span>
+        </div>
         <div className="history-list">
           {transactions.map((item) => (
-            <div key={item.id} className="history-row wallet-transaction-row">
-              <div>
+            <article key={item.id} className="wallet-ledger-row">
+              <div className="wallet-ledger-main">
                 <strong>{item.transaction_type === 'deposit' ? 'Deposit' : 'Withdrawal'} · {item.transaction_type === 'deposit' ? '+' : '-'}{formatKes(item.amount_kes)}</strong>
                 <small>{walletMethodLabels[item.payment_method] || item.description || 'Wallet activity'}{item.transaction_reference ? ` · Reference ${item.transaction_reference}` : ''}</small>
-                <small>{item.status} · {formatDate(item.created_at)}</small>
+                <small>{formatDate(item.created_at)}{item.reviewed_at ? ` · Reviewed ${formatDate(item.reviewed_at)}` : ''}</small>
               </div>
-            </div>
+              <span className={`status-badge status-${item.status}`}>{item.status.replace('_', ' ')}</span>
+            </article>
           ))}
           {!loading && !error && transactions.length === 0 && <p>No wallet transactions have been recorded yet.</p>}
         </div>
@@ -1710,6 +1734,7 @@ function AdminPage({ session, onAuthenticated, onVerifyAdminPassword, taskPosts,
   const [submissions, setSubmissions] = useState([])
   const [payouts, setPayouts] = useState([])
   const [walletTransactions, setWalletTransactions] = useState([])
+  const [walletSummary, setWalletSummary] = useState(null)
   const [users, setUsers] = useState([])
   const [catalog, setCatalog] = useState([])
   const [campaigns, setCampaigns] = useState([])
@@ -1719,6 +1744,8 @@ function AdminPage({ session, onAuthenticated, onVerifyAdminPassword, taskPosts,
   const [refreshVersion, setRefreshVersion] = useState(0)
   const [dataLoading, setDataLoading] = useState(true)
   const [dataError, setDataError] = useState('')
+  const [walletTypeFilter, setWalletTypeFilter] = useState('all')
+  const [walletStatusFilter, setWalletStatusFilter] = useState('all')
 
   useEffect(() => {
     if (!selectedProof) return undefined
@@ -1747,6 +1774,7 @@ function AdminPage({ session, onAuthenticated, onVerifyAdminPassword, taskPosts,
         setSubmissions(taskResult.tasks)
         setPayouts(payoutResult.payouts)
         setWalletTransactions(walletTransactionResult.transactions)
+        setWalletSummary(walletTransactionResult.summary)
         setUsers(userResult.users)
         setCatalog(catalogResult.tasks)
         setCampaigns(campaignResult.campaigns)
@@ -1816,7 +1844,7 @@ function AdminPage({ session, onAuthenticated, onVerifyAdminPassword, taskPosts,
       {(error || actionError || dataError) && <div className="form-error" role="alert">{actionError || error || dataError}</div>}
       {dataLoading && <p>Loading operational records…</p>}
       <nav className="admin-section-tabs" aria-label="Admin management sections">
-        {['Overview', 'Users & posters', 'Task posts', 'Submissions', 'Wallet deposits', 'Withdrawals', 'Legacy payouts', 'Task catalog', 'Campaigns'].map((item) => (
+        {['Overview', 'Users & posters', 'Task posts', 'Submissions', 'Wallet transparency', 'Wallet deposits', 'Withdrawals', 'Legacy payouts', 'Task catalog', 'Campaigns'].map((item) => (
           <button type="button" key={item} className={section === item ? 'admin-section-tab active' : 'admin-section-tab'} aria-current={section === item ? 'page' : undefined} onClick={() => setSection(item)}>
             {item}
           </button>
@@ -1851,8 +1879,100 @@ function AdminPage({ session, onAuthenticated, onVerifyAdminPassword, taskPosts,
       {section === 'Overview' && (
         <div className="panel admin-overview-note">
           <h2>Platform operations</h2>
-          <p>Use the sections above to review accounts, verify poster deposits, process user and poster withdrawal requests, moderate tasks, and manage campaigns. Withdrawals are transferred manually before the admin settles the request; the website does not send payments.</p>
+          <p>Use the sections above to review accounts, see the complete wallet ledger, verify poster deposits, process user and poster withdrawal requests, moderate tasks, and manage campaigns. Withdrawals are transferred manually before the admin settles the request; the website does not send payments.</p>
         </div>
+      )}
+
+      {section === 'Wallet transparency' && (
+        <section className="wallet-admin-overview">
+          <div className="wallet-admin-summary-grid">
+            {[
+              ['Total received', walletSummary?.total_received_kes, 'Approved deposits'],
+              ['Total withdrawn', walletSummary?.wallet_withdrawn_kes, 'Recorded on wallet balances'],
+              ['Settled withdrawals', walletSummary?.total_withdrawn_kes, 'Approved request records'],
+              ['Available across wallets', walletSummary?.available_balance_kes, 'Ready for withdrawal'],
+              ['Reserved for withdrawal', walletSummary?.reserved_balance_kes, 'Pending requests'],
+              ['Deposits awaiting review', walletSummary?.pending_deposits_kes, 'Pending verification'],
+              ['Withdrawals awaiting review', walletSummary?.pending_withdrawals_kes, 'Pending processing'],
+              ['Rejected deposits', walletSummary?.rejected_deposits_kes, 'Never credited'],
+              ['Rejected withdrawals', walletSummary?.rejected_withdrawals_kes, 'Returned to users'],
+            ].map(([label, amount, detail]) => (
+              <article className="wallet-admin-stat panel" key={label}>
+                <span>{label}</span>
+                <strong>{amount == null ? '—' : formatKes(amount)}</strong>
+                <small>{detail}</small>
+              </article>
+            ))}
+          </div>
+          <section className="panel admin-data-panel wallet-review-panel">
+            <div className="wallet-history-heading">
+              <div><h2>Wallet activity</h2><p>Recent transactions across user and poster accounts. Summary totals cover all recorded history.</p></div>
+              <span>{walletSummary?.pending_transactions_count ?? 0} pending</span>
+            </div>
+            <div className="wallet-admin-filters">
+              <label>Account activity
+                <select value={walletTypeFilter} onChange={(event) => setWalletTypeFilter(event.target.value)}>
+                  <option value="all">All activity</option>
+                  <option value="deposit">Deposits</option>
+                  <option value="withdrawal">Withdrawals</option>
+                </select>
+              </label>
+              <label>Review status
+                <select value={walletStatusFilter} onChange={(event) => setWalletStatusFilter(event.target.value)}>
+                  <option value="all">All statuses</option>
+                  <option value="pending_review">Pending</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </label>
+            </div>
+            <div className="history-list">
+              {walletTransactions
+                .filter((transaction) => walletTypeFilter === 'all' || transaction.transaction_type === walletTypeFilter)
+                .filter((transaction) => walletStatusFilter === 'all' || transaction.status === walletStatusFilter)
+                .map((transaction) => (
+                  <article className="wallet-review-row" key={transaction.id}>
+                    <div className="wallet-review-details">
+                      <div className="wallet-review-heading">
+                        <strong>{transaction.user_name || 'Account unavailable'}</strong>
+                        <span className={`status-badge status-${transaction.status}`}>{transaction.status.replace('_', ' ')}</span>
+                      </div>
+                      <small>{transaction.user_email} · {transaction.user_role} · {formatDate(transaction.created_at)}</small>
+                      <div className="wallet-review-facts">
+                        <span>{transaction.transaction_type === 'deposit' ? 'Received' : 'Withdrawal'} <strong>{formatKes(transaction.amount_kes)}</strong></span>
+                        <span>Method <strong>{walletMethodLabels[transaction.payment_method] || transaction.payment_method || 'Not recorded'}</strong></span>
+                        {transaction.transaction_type === 'deposit'
+                          ? <span>Transfer code / hash <strong>{transaction.transaction_reference || 'Not provided'}</strong></span>
+                          : <span>Pay to <strong>{transaction.destination || 'Not provided'}</strong></span>}
+                      </div>
+                      {transaction.reviewed_at && <small>Reviewed {formatDate(transaction.reviewed_at)}</small>}
+                    </div>
+                    {transaction.status === 'pending_review' && (
+                      <div className="review-actions">
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          disabled={workingId === transaction.id}
+                          onClick={() => updateStatus(`/admin/wallet-transactions/${transaction.id}/status`, transaction.id, 'approved')}
+                        >{transaction.transaction_type === 'deposit' ? 'Verify & credit' : 'Confirm paid & settle'}</button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          disabled={workingId === transaction.id}
+                          onClick={() => updateStatus(`/admin/wallet-transactions/${transaction.id}/status`, transaction.id, 'rejected')}
+                        >Reject</button>
+                      </div>
+                    )}
+                  </article>
+                ))}
+              {!dataLoading && !dataError && walletTransactions.filter((transaction) => (
+                (walletTypeFilter === 'all' || transaction.transaction_type === walletTypeFilter)
+                && (walletStatusFilter === 'all' || transaction.status === walletStatusFilter)
+              )).length === 0 && <p>No wallet activity matches these filters.</p>}
+            </div>
+          </section>
+          <p className="review-disclaimer">Totals are calculated from recorded wallet transactions and wallet balances. They do not include task budgets or unrecorded payments. Withdrawals remain manual; approve only after confirming the transfer.</p>
+        </section>
       )}
 
       {section === 'Users & posters' && (
