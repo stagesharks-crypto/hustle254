@@ -1321,21 +1321,45 @@ app.get('/api/user/dashboard', requireAuth, async (req, res) => {
 
 app.get('/api/wallet/transactions', requireAuth, async (req, res) => {
   if (databaseOnline) {
-    const result = await pool.query(
-      `SELECT id, transaction_type, amount_kes, status, payment_method,
-              transaction_reference, destination, description, created_at, reviewed_at
-       FROM wallet_transactions
-       WHERE user_id = $1
-       ORDER BY created_at DESC
-       LIMIT 100`,
-      [req.user.sub]
-    );
-    return res.json({ transactions: result.rows });
+    const [result, totals] = await Promise.all([
+      pool.query(
+        `SELECT id, transaction_type, amount_kes, status, payment_method,
+                transaction_reference, destination, description, created_at, reviewed_at
+         FROM wallet_transactions
+         WHERE user_id = $1
+         ORDER BY created_at DESC
+         LIMIT 100`,
+        [req.user.sub]
+      ),
+      pool.query(
+        `SELECT
+           COALESCE(SUM(amount_kes) FILTER (WHERE transaction_type = 'deposit' AND status = 'pending_review'), 0) AS pending_deposits_kes,
+           COALESCE(SUM(amount_kes) FILTER (WHERE transaction_type = 'deposit' AND status = 'approved'), 0) AS approved_deposits_kes,
+           COALESCE(SUM(amount_kes) FILTER (WHERE transaction_type = 'deposit' AND status = 'rejected'), 0) AS rejected_deposits_kes,
+           COALESCE(SUM(amount_kes) FILTER (WHERE transaction_type = 'withdrawal' AND status = 'pending_review'), 0) AS pending_withdrawals_kes,
+           COALESCE(SUM(amount_kes) FILTER (WHERE transaction_type = 'withdrawal' AND status = 'rejected'), 0) AS rejected_withdrawals_kes,
+           COALESCE(SUM(amount_kes) FILTER (WHERE transaction_type = 'withdrawal' AND status = 'approved'), 0) AS withdrawn_kes
+         FROM wallet_transactions
+         WHERE user_id = $1`,
+        [req.user.sub]
+      ),
+    ]);
+    return res.json({ transactions: result.rows, summary: totals.rows[0] });
   }
+  const userTransactions = mockWalletTransactions.filter((item) => String(item.user_id) === String(req.user.sub));
+  const sumTransactions = (type, status) => userTransactions
+    .filter((item) => item.transaction_type === type && item.status === status)
+    .reduce((sum, item) => sum + Number(item.amount_kes || 0), 0);
   return res.json({
-    transactions: mockWalletTransactions
-      .filter((item) => String(item.user_id) === String(req.user.sub))
-      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
+    transactions: userTransactions.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
+    summary: {
+      pending_deposits_kes: sumTransactions('deposit', 'pending_review'),
+      approved_deposits_kes: sumTransactions('deposit', 'approved'),
+      rejected_deposits_kes: sumTransactions('deposit', 'rejected'),
+      pending_withdrawals_kes: sumTransactions('withdrawal', 'pending_review'),
+      rejected_withdrawals_kes: sumTransactions('withdrawal', 'rejected'),
+      withdrawn_kes: sumTransactions('withdrawal', 'approved'),
+    },
   });
 });
 
@@ -1735,28 +1759,47 @@ app.post('/api/payouts/request', requireAuth, (req, res) => {
 
 app.get('/api/admin/wallet-transactions', requireAuth, requireAdmin, async (req, res) => {
   if (databaseOnline) {
-    const result = await pool.query(
-      `SELECT wallet_transactions.id, wallet_transactions.user_id,
-              users.full_name AS user_name, users.email AS user_email, users.role AS user_role,
-              wallet_transactions.transaction_type, wallet_transactions.amount_kes,
-              wallet_transactions.status, wallet_transactions.payment_method,
-              wallet_transactions.transaction_reference, wallet_transactions.destination,
-              wallet_transactions.description, wallet_transactions.created_at,
-              wallet_transactions.reviewed_at
-       FROM wallet_transactions
-       JOIN users ON users.id = wallet_transactions.user_id
-       WHERE wallet_transactions.status = 'pending_review'
-          OR wallet_transactions.id IN (
-            SELECT id FROM wallet_transactions
-            WHERE status != 'pending_review'
-            ORDER BY created_at DESC
-            LIMIT 200
-          )
-       ORDER BY (wallet_transactions.status = 'pending_review') DESC, wallet_transactions.created_at DESC
-      `
-    );
-    return res.json({ transactions: result.rows });
+    const [result, totals] = await Promise.all([
+      pool.query(
+        `SELECT wallet_transactions.id, wallet_transactions.user_id,
+                users.full_name AS user_name, users.email AS user_email, users.role AS user_role,
+                wallet_transactions.transaction_type, wallet_transactions.amount_kes,
+                wallet_transactions.status, wallet_transactions.payment_method,
+                wallet_transactions.transaction_reference, wallet_transactions.destination,
+                wallet_transactions.description, wallet_transactions.created_at,
+                wallet_transactions.reviewed_at
+         FROM wallet_transactions
+         JOIN users ON users.id = wallet_transactions.user_id
+         WHERE wallet_transactions.status = 'pending_review'
+            OR wallet_transactions.id IN (
+              SELECT id FROM wallet_transactions
+              WHERE status != 'pending_review'
+              ORDER BY created_at DESC
+              LIMIT 200
+            )
+         ORDER BY (wallet_transactions.status = 'pending_review') DESC, wallet_transactions.created_at DESC
+        `
+      ),
+      pool.query(
+        `SELECT
+           COALESCE(SUM(amount_kes) FILTER (WHERE transaction_type = 'deposit' AND status = 'approved'), 0) AS total_received_kes,
+           COALESCE(SUM(amount_kes) FILTER (WHERE transaction_type = 'deposit' AND status = 'pending_review'), 0) AS pending_deposits_kes,
+           COALESCE(SUM(amount_kes) FILTER (WHERE transaction_type = 'deposit' AND status = 'rejected'), 0) AS rejected_deposits_kes,
+           COALESCE(SUM(amount_kes) FILTER (WHERE transaction_type = 'withdrawal' AND status = 'approved'), 0) AS total_withdrawn_kes,
+           COALESCE(SUM(amount_kes) FILTER (WHERE transaction_type = 'withdrawal' AND status = 'pending_review'), 0) AS pending_withdrawals_kes,
+           COALESCE(SUM(amount_kes) FILTER (WHERE transaction_type = 'withdrawal' AND status = 'rejected'), 0) AS rejected_withdrawals_kes,
+           COUNT(*) FILTER (WHERE status = 'pending_review')::int AS pending_transactions_count,
+           (SELECT COALESCE(SUM(balance_kes), 0) FROM wallets) AS available_balance_kes,
+           (SELECT COALESCE(SUM(pending_kes), 0) FROM wallets) AS reserved_balance_kes,
+           (SELECT COALESCE(SUM(withdrawn_kes), 0) FROM wallets) AS wallet_withdrawn_kes
+         FROM wallet_transactions`
+      ),
+    ]);
+    return res.json({ transactions: result.rows, summary: totals.rows[0] });
   }
+  const sumTransactions = (type, status) => mockWalletTransactions
+    .filter((item) => item.transaction_type === type && item.status === status)
+    .reduce((sum, item) => sum + Number(item.amount_kes || 0), 0);
   return res.json({
     transactions: mockWalletTransactions.map((transaction) => ({
       ...transaction,
@@ -1764,6 +1807,18 @@ app.get('/api/admin/wallet-transactions', requireAuth, requireAdmin, async (req,
       user_email: mockUsers.find((user) => String(user.id) === String(transaction.user_id))?.email || '',
       user_role: mockUsers.find((user) => String(user.id) === String(transaction.user_id))?.role || 'user',
     })),
+    summary: {
+      total_received_kes: sumTransactions('deposit', 'approved'),
+      pending_deposits_kes: sumTransactions('deposit', 'pending_review'),
+      rejected_deposits_kes: sumTransactions('deposit', 'rejected'),
+      total_withdrawn_kes: sumTransactions('withdrawal', 'approved'),
+      pending_withdrawals_kes: sumTransactions('withdrawal', 'pending_review'),
+      rejected_withdrawals_kes: sumTransactions('withdrawal', 'rejected'),
+      pending_transactions_count: mockWalletTransactions.filter((item) => item.status === 'pending_review').length,
+      available_balance_kes: mockWallets.reduce((sum, wallet) => sum + Number(wallet.balance_kes || 0), 0),
+      reserved_balance_kes: mockWallets.reduce((sum, wallet) => sum + Number(wallet.pending_kes || 0), 0),
+      wallet_withdrawn_kes: mockWallets.reduce((sum, wallet) => sum + Number(wallet.withdrawn_kes || 0), 0),
+    },
   });
 });
 
