@@ -106,10 +106,11 @@ const learningNavigation = [
 const accountNavigation = [
   { label: 'Dashboard', icon: 'D' },
   { label: 'Wallet', icon: 'W' },
+  { label: 'Streaks', icon: '7' },
   { label: 'Referral', icon: 'R' },
 ]
 
-const memberPages = new Set(['Tasks', 'Wallet', 'Referral', 'Dashboard', 'Admin', 'Poster', 'Post a task'])
+const memberPages = new Set(['Tasks', 'Wallet', 'Streaks', 'Referral', 'Dashboard', 'Admin', 'Poster', 'Post a task'])
 
 const howSteps = [
   { title: 'Create your account', text: 'Sign up quickly with your phone number, profile basics, and KYC-friendly verification.' },
@@ -159,6 +160,9 @@ function App() {
   const [tasksError, setTasksError] = useState('')
   const [taskPosts, setTaskPosts] = useState([])
   const [taskPostError, setTaskPostError] = useState('')
+  const [dailyStreakRecord, setDailyStreakRecord] = useState(null)
+  const [streakError, setStreakError] = useState('')
+  const [streakRefreshVersion, setStreakRefreshVersion] = useState(0)
   const [session, setSession] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('hustle254-session') || 'null')
@@ -208,6 +212,26 @@ function App() {
   }
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) || tasks[0] || null
+  const hasStreakAccess = Boolean(session?.token && ['user', 'poster'].includes(session.user?.role))
+  const dailyStreak = dailyStreakRecord?.userId === session?.user?.id ? dailyStreakRecord.streak : null
+  const streakLoading = hasStreakAccess && !dailyStreak && !streakError
+
+  useEffect(() => {
+    if (!hasStreakAccess) return undefined
+
+    let active = true
+    apiRequest('/user/streak/check-in', { method: 'POST', token: session.token })
+      .then(({ streak }) => {
+        if (active) {
+          setDailyStreakRecord({ userId: session.user.id, streak })
+          setStreakError('')
+        }
+      })
+      .catch((requestError) => {
+        if (active) setStreakError(requestError.message)
+      })
+    return () => { active = false }
+  }, [hasStreakAccess, session?.token, session?.user?.id, streakRefreshVersion])
 
   useEffect(() => {
     const resetToken = new URLSearchParams(window.location.search).get('reset')
@@ -402,11 +426,15 @@ function App() {
           ? <PosterPage session={session} setCurrentPage={setCurrentPage} />
           : <SignInRequiredPage setCurrentPage={setCurrentPage} />
       case 'Wallet':
-        return <WalletPage session={session} />
+        return <WalletPage session={session} streakDate={dailyStreak?.lastLoginDate} />
+      case 'Streaks':
+        return session && ['user', 'poster'].includes(session.user.role)
+          ? <StreakPage streak={dailyStreak} loading={streakLoading} error={streakError} onRetry={() => setStreakRefreshVersion((version) => version + 1)} setCurrentPage={setCurrentPage} />
+          : <SignInRequiredPage setCurrentPage={setCurrentPage} />
       case 'Referral':
         return <ReferralPage session={session} />
       case 'Dashboard':
-        return <DashboardPage session={session} onOpenProfile={() => { setProfileModalOpen(true); setProfileTab('overview') }} />
+        return <DashboardPage session={session} streakDate={dailyStreak?.lastLoginDate} onOpenProfile={() => { setProfileModalOpen(true); setProfileTab('overview') }} />
       case 'Admin':
         return (
           <AdminPage
@@ -481,6 +509,7 @@ function App() {
             {[
               { label: 'Poster', icon: 'P', title: 'Poster account' },
               { label: 'Wallet', icon: 'W', title: 'Wallet' },
+              { label: 'Streaks', icon: '7', title: 'Daily streak' },
               { label: 'Post a task', icon: '+', title: 'Post a task' },
             ].map((item) => (
               <button
@@ -756,6 +785,19 @@ function FeaturesPage({ setCurrentPage, session }) {
               <p>{feature.text}</p>
               <span className="feature-card-link">Open wallet <span aria-hidden="true">→</span></span>
             </button>
+          ) : feature.title === 'Streak boosters' ? (
+            <button
+              key={feature.title}
+              type="button"
+              className="feature-card feature-card-action panel"
+              onClick={() => setCurrentPage(session?.user?.role === 'admin' ? 'Admin' : 'Streaks')}
+              aria-label="Open daily login streak rewards"
+            >
+              <span className="tag">{feature.tag}</span>
+              <h3>{feature.title}</h3>
+              <p>Log in daily to build your streak. Earn $0.023 (KSh 2.94) for every seven consecutive days.</p>
+              <span className="feature-card-link">View your streak <span aria-hidden="true">→</span></span>
+            </button>
           ) : (
             <article key={feature.title} className="feature-card panel">
               <span className="tag">{feature.tag}</span>
@@ -770,6 +812,85 @@ function FeaturesPage({ setCurrentPage, session }) {
           )
         ))}
       </div>
+    </div>
+  )
+}
+
+function StreakPage({ streak, loading, error, onRetry, setCurrentPage }) {
+  const currentDays = Math.min(Number(streak?.currentDays || 0), 7)
+  const nextRewardInDays = Number(streak?.nextRewardInDays ?? 7)
+  const recentRewards = streak?.rewards || []
+
+  return (
+    <div className="page-wrap streak-page">
+      <PageHeader
+        eyebrow="Daily streak"
+        title="Show up every day. Build your streak."
+        subtitle="Your consecutive login days are counted automatically in East Africa Time. Miss a calendar day and your streak starts over on your next login."
+      />
+
+      {error && <div className="form-error" role="alert">{error}<button type="button" className="streak-retry" onClick={onRetry}>Try again</button></div>}
+      {loading && <p>Checking your daily streak…</p>}
+
+      <section className="streak-hero panel" aria-live="polite">
+        <div className="streak-hero-copy">
+          <span className="streak-kicker"><span aria-hidden="true">✦</span> YOUR DAILY MOMENTUM</span>
+          <strong className="streak-count">{currentDays}<small>/7</small></strong>
+          <h2>{streak?.rewardEarnedToday ? 'Seven days. Reward unlocked!' : `${currentDays} ${currentDays === 1 ? 'day' : 'days'} in a row`}</h2>
+          <p>{streak?.rewardEarnedToday
+            ? 'Your seven-day bonus has been added to your wallet. Come back tomorrow to start another streak.'
+            : `Log in each day to keep your streak. ${nextRewardInDays} ${nextRewardInDays === 1 ? 'more day' : 'more days'} until your next bonus.`}</p>
+          <div className="streak-prize">
+            <span>7-day reward</span>
+            <strong>$0.023 <small>({streak ? `KSh ${Number(streak.rewardKes).toFixed(2)}` : 'KSh 2.94'})</small></strong>
+            <small>Automatically credited to your wallet</small>
+          </div>
+        </div>
+        <div className="streak-visual" aria-hidden="true"><span>✦</span><small>KEEP<br />GOING</small></div>
+      </section>
+
+      <section className="streak-progress-section">
+        <div className="streak-section-heading">
+          <div><span className="eyebrow">ONE DAY AT A TIME</span><h2>Your seven-day path</h2></div>
+          <span className="streak-reset-note">New day at midnight · East Africa Time</span>
+        </div>
+        <div className="streak-day-grid" aria-label={`${currentDays} of 7 consecutive login days completed`}>
+          {Array.from({ length: 7 }, (_, index) => {
+            const day = index + 1
+            const completed = day <= currentDays
+            const rewardDay = day === 7
+            return (
+              <article className={`streak-day-card${completed ? ' completed' : ''}${rewardDay ? ' reward-day' : ''}`} key={day}>
+                <span>{rewardDay ? 'BONUS' : `DAY ${day}`}</span>
+                <strong aria-label={completed ? `Day ${day} completed` : `Day ${day} not completed`}>{completed ? '✓' : String(day).padStart(2, '0')}</strong>
+                <small>{rewardDay ? '$0.023 reward' : completed ? 'Checked in' : 'Log in to unlock'}</small>
+              </article>
+            )
+          })}
+        </div>
+        {streak?.rewardEarnedToday && <div className="submission-success streak-earned" role="status">Your streak bonus is in your wallet: $0.023 (KSh {Number(streak.rewardKes).toFixed(2)}).</div>}
+      </section>
+
+      <section className="panel streak-history-panel">
+        <div className="streak-section-heading">
+          <div><span className="eyebrow">YOUR REWARDS</span><h2>Bonus history</h2></div>
+          <div className="streak-lifetime-total"><strong>{streak?.totalRewards ?? '—'}</strong><small>bonuses earned · KSh {Number(streak?.totalRewardsKes || 0).toFixed(2)} total</small></div>
+        </div>
+        {recentRewards.length > 0 ? (
+          <div className="streak-reward-list">
+            {recentRewards.map((reward) => (
+              <article className="streak-reward-row" key={reward.id || `${reward.streak_day}-${reward.created_at}`}>
+                <span className="streak-reward-icon" aria-hidden="true">✓</span>
+                <div><strong>7-day login bonus</strong><small>{reward.streak_day || formatDate(reward.created_at)}</small></div>
+                <strong>$0.023 <small>(KSh {Number(reward.amount_kes).toFixed(2)})</small></strong>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="streak-empty">{loading ? 'Loading reward history…' : 'Your first seven-day bonus will appear here. Log in tomorrow to keep building your streak.'}</p>
+        )}
+        <button type="button" className="btn btn-secondary streak-wallet-link" onClick={() => setCurrentPage('Wallet')}>Open wallet <span aria-hidden="true">→</span></button>
+      </section>
     </div>
   )
 }
@@ -1165,7 +1286,7 @@ function PosterPage({ session, setCurrentPage }) {
   )
 }
 
-function WalletPage({ session }) {
+function WalletPage({ session, streakDate }) {
   const [dashboard, setDashboard] = useState(null)
   const [transactions, setTransactions] = useState([])
   const [transactionSummary, setTransactionSummary] = useState(null)
@@ -1202,7 +1323,7 @@ function WalletPage({ session }) {
     refreshWallet()
     const refreshTimer = window.setInterval(refreshWallet, 15000)
     return () => { active = false; window.clearInterval(refreshTimer) }
-  }, [session.token])
+  }, [session.token, streakDate])
 
   async function submitWalletRequest(event) {
     event.preventDefault()
@@ -1408,7 +1529,7 @@ function ReferralPage({ session }) {
   )
 }
 
-function DashboardPage({ session, onOpenProfile }) {
+function DashboardPage({ session, streakDate, onOpenProfile }) {
   const [dashboard, setDashboard] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -1418,7 +1539,7 @@ function DashboardPage({ session, onOpenProfile }) {
       .then(setDashboard)
       .catch((requestError) => setError(requestError.message))
       .finally(() => setLoading(false))
-  }, [session.token])
+  }, [session.token, streakDate])
 
   const stats = dashboard?.stats
   const wallet = dashboard?.wallet
