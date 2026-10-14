@@ -697,57 +697,73 @@ function HomePage({ setCurrentPage, session }) {
     <div className="home-page">
       <section className="welcome-hero">
         <div className="welcome-copy">
-          <div className="welcome-kicker"><span /> Made for earners in Kenya</div>
-          <h1>Your time has value. <em>Earn on your terms.</em></h1>
-          <p>Find paid surveys, social campaigns and simple online tasks. Do the work, submit proof, and track every reward in one place.</p>
+          <div className="welcome-kicker"><span /> Kenya’s home for online rewards</div>
+          <h1>Turn your <em>everyday</em> into earning days.</h1>
+          <p>Discover real tasks, build your daily streak, and see every wallet update in one secure place. Your next opportunity is closer than you think.</p>
           <div className="welcome-actions">
             {session ? (
               <button type="button" className="btn welcome-primary" onClick={() => setCurrentPage(session.user.role === 'poster' ? 'Poster' : primaryDestination)}>
-                {session.user.role === 'admin' ? 'Open admin dashboard' : session.user.role === 'poster' ? 'Open poster account' : 'Go to your dashboard'} <span aria-hidden="true">→</span>
+                {session.user.role === 'admin' ? 'Open admin dashboard' : session.user.role === 'poster' ? 'Open poster studio' : 'Go to your dashboard'} <span aria-hidden="true">→</span>
               </button>
             ) : (
-              <button type="button" className="btn welcome-primary" onClick={() => setCurrentPage('Sign up')}>Create your free account <span aria-hidden="true">→</span></button>
+              <button type="button" className="btn welcome-primary" onClick={() => setCurrentPage('Sign up')}>Start earning today <span aria-hidden="true">→</span></button>
             )}
-            <button type="button" className="welcome-secondary" onClick={() => setCurrentPage('Tasks')}>Explore available tasks</button>
-            {!session && <button type="button" className="welcome-secondary" onClick={() => setCurrentPage('Poster signup')}>Register as a poster</button>}
+            <button type="button" className="welcome-secondary" onClick={() => setCurrentPage('Tasks')}>Explore opportunities <span aria-hidden="true">↗</span></button>
           </div>
-          <div className="welcome-note"><span aria-hidden="true">✓</span> Clear task rules. No fee to join.</div>
+          <div className="welcome-proof-points">
+            <span><i aria-hidden="true">✓</i> Clear rewards</span>
+            <span><i aria-hidden="true">✓</i> Proof-based reviews</span>
+            <span><i aria-hidden="true">✓</i> Wallet transparency</span>
+          </div>
           <div className="welcome-payments">
-            <span>Withdraw with</span>
-            <strong>M-Pesa</strong>
-            <strong>PayPal</strong>
-            <strong>Till</strong>
-            <strong>Bank</strong>
-            <strong>USDT</strong>
+            <span>Flexible withdrawals</span>
+            <strong>M-Pesa</strong><b>·</b><strong>PayPal</strong><b>·</b><strong>Bank</strong><b>·</b><strong>USDT</strong>
           </div>
         </div>
 
-        <div className="welcome-visual" aria-label="A person working online from their phone">
-          <img src="https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1200&q=85" alt="Person using a laptop to work online" fetchPriority="high" />
-          <div className="visual-tint" />
-          <div className="visual-caption"><span>YOUR NEXT TASK</span><strong>Start with what fits your day.</strong></div>
-          <div className="visual-reward">
-            <span className="reward-icon" aria-hidden="true">K</span>
-            <div><small>Rewards are shown upfront</small><strong>Know what a task pays</strong></div>
-            <span className="reward-arrow" aria-hidden="true">↗</span>
+        <div className="welcome-visual" aria-label="Illustration of a transparent rewards wallet">
+          <div className="hero-glow hero-glow-one" />
+          <div className="hero-glow hero-glow-two" />
+          <div className="hero-grid" />
+          <div className="hero-orbit hero-orbit-one" />
+          <div className="hero-orbit hero-orbit-two" />
+          <div className="hero-coin hero-coin-back" aria-hidden="true"><span>K</span></div>
+          <div className="hero-coin hero-coin-front" aria-hidden="true"><span>K</span></div>
+          <div className="hero-wallet-card">
+            <div className="hero-wallet-topline"><span className="hero-wallet-mark">H</span><span>HUSTLE WALLET</span><span className="hero-wallet-dots">•••</span></div>
+            <div className="hero-wallet-label">YOUR EARNINGS, MADE CLEAR</div>
+            <div className="hero-wallet-balance">KSh <strong>••••</strong></div>
+            <div className="hero-wallet-divider" />
+            <div className="hero-wallet-footer"><span><i /> Secure &amp; transparent</span><span>254</span></div>
           </div>
+          <div className="hero-float-card hero-float-task">
+            <span className="hero-float-icon">↗</span>
+            <span><small>NEW OPPORTUNITY</small><strong>Ready when you are</strong></span>
+          </div>
+          <div className="hero-float-card hero-float-streak">
+            <span className="hero-streak-icon">✦</span>
+            <span><small>DAILY STREAK</small><strong>One day at a time</strong></span>
+            <span className="hero-streak-dots"><i /><i /><i /><i /><i /><i /><i /></span>
+          </div>
+          <div className="hero-visual-caption"><span>YOUR NEXT MOVE</span><strong>Make today count.</strong></div>
         </div>
       </section>
 
       <section className="home-opportunities" aria-labelledby="opportunities-title">
         <div className="home-section-intro">
-          <span className="home-overline">A better way to earn online</span>
-          <h2 id="opportunities-title">Choose your next move.</h2>
+          <span className="home-overline">A platform that moves with you</span>
+          <h2 id="opportunities-title">One account.<br /><em>More ways forward.</em></h2>
+          <p>Built for the people doing the work—and the people creating it.</p>
         </div>
         <div className="opportunity-list">
           <button type="button" className="opportunity-row" onClick={() => setCurrentPage('Tasks')}>
-            <span className="opportunity-number">01</span><span className="opportunity-copy"><strong>Surveys &amp; offers</strong><small>Share your opinion or try a new service</small></span><span className="opportunity-arrow" aria-hidden="true">↗</span>
+            <span className="opportunity-number">01</span><span className="opportunity-icon opportunity-icon-tasks" aria-hidden="true">↗</span><span className="opportunity-copy"><strong>Find work that fits your day</strong><small>Browse tasks with clear instructions and visible rewards.</small><span className="opportunity-link">Explore tasks <i aria-hidden="true">→</i></span></span><span className="opportunity-arrow" aria-hidden="true">↗</span>
           </button>
-          <button type="button" className="opportunity-row" onClick={() => setCurrentPage('Tasks')}>
-            <span className="opportunity-number">02</span><span className="opportunity-copy"><strong>Social campaigns</strong><small>Complete simple tasks for participating brands</small></span><span className="opportunity-arrow" aria-hidden="true">↗</span>
+          <button type="button" className="opportunity-row" onClick={() => setCurrentPage(session?.user?.role === 'poster' ? 'Post a task' : session ? 'Wallet' : 'Poster signup')}>
+            <span className="opportunity-number">02</span><span className="opportunity-icon opportunity-icon-poster" aria-hidden="true">＋</span><span className="opportunity-copy"><strong>Bring your next campaign to life</strong><small>Connect your brand with a community ready to participate.</small><span className="opportunity-link">{session?.user?.role === 'poster' ? 'Post a task' : 'For businesses'} <i aria-hidden="true">→</i></span></span><span className="opportunity-arrow" aria-hidden="true">↗</span>
           </button>
-          <button type="button" className="opportunity-row" onClick={() => setCurrentPage('Referral')}>
-            <span className="opportunity-number">03</span><span className="opportunity-copy"><strong>Referral rewards</strong><small>Invite friends and follow your referral progress</small></span><span className="opportunity-arrow" aria-hidden="true">↗</span>
+          <button type="button" className="opportunity-row" onClick={() => setCurrentPage(session ? 'Streaks' : 'Sign up')}>
+            <span className="opportunity-number">03</span><span className="opportunity-icon opportunity-icon-streak" aria-hidden="true">✦</span><span className="opportunity-copy"><strong>Build a rhythm. Earn a bonus.</strong><small>Show up daily and track your seven-day streak.</small><span className="opportunity-link">{session ? 'View your streak' : 'Get started'} <i aria-hidden="true">→</i></span></span><span className="opportunity-arrow" aria-hidden="true">↗</span>
           </button>
         </div>
       </section>
