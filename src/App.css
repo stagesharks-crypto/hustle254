@@ -3821,6 +3821,32 @@ html[data-theme='light'] .app-content .hero-visual-caption strong {
   color: #f4f8f5;
 }
 
+html[data-theme='light'] .app-content .hero-wallet-card :where(span, strong) {
+  color: #eef4ef;
+}
+
+html[data-theme='light'] .app-content .hero-wallet-card .hero-wallet-mark {
+  color: #142010;
+}
+
+html[data-theme='light'] .app-content .hero-wallet-card .hero-wallet-label,
+html[data-theme='light'] .app-content .hero-wallet-card .hero-wallet-footer {
+  color: #c9dccb;
+}
+
+html[data-theme='light'] .app-content .hero-float-card :where(span, strong) {
+  color: #eef4ef;
+}
+
+html[data-theme='light'] .app-content .hero-float-card small {
+  color: #c4d0cd;
+}
+
+html[data-theme='light'] .app-content .hero-float-icon,
+html[data-theme='light'] .app-content .hero-streak-icon {
+  color: #c5ed6f;
+}
+
 html[data-theme='light'] .welcome-kicker,
 html[data-theme='light'] .home-overline,
 html[data-theme='light'] .welcome-copy h1 em,
