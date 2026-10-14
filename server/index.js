@@ -127,10 +127,13 @@ app.use(cors({
 app.use(express.json({ limit: '5mb' }));
 
 function generateToken(user) {
+  const expiresIn = ['user', 'poster'].includes(user.role)
+    ? getSecondsUntilNextNairobiMidnight()
+    : '7d';
   return jwt.sign(
     { sub: user.id, email: user.email, role: user.role },
     JWT_SECRET,
-    { expiresIn: '7d' }
+    { expiresIn }
   );
 }
 
@@ -353,6 +356,13 @@ async function requireAuth(req, res, next) {
     return res.status(401).json({ message: 'Invalid or expired token.' });
   }
 
+  if (
+    ['user', 'poster'].includes(payload.role)
+    && getNairobiDateKey(new Date(Number(payload.iat) * 1000)) !== getNairobiDateKey()
+  ) {
+    return res.status(401).json({ message: 'Your daily sign-in has expired. Please log in again.' });
+  }
+
   if (databaseOnline) {
     const result = await pool.query('SELECT status FROM users WHERE id = $1', [payload.sub]);
     if (!result.rows[0] || result.rows[0].status !== 'active') {
@@ -396,6 +406,24 @@ function getCalendarDayDifference(previousDate, currentDate) {
     return Date.UTC(year, month - 1, day) / 86400000;
   };
   return toDayNumber(currentDate) - toDayNumber(previousDate);
+}
+
+function getSecondsUntilNextNairobiMidnight(now = new Date()) {
+  const today = getNairobiDateKey(now);
+  let low = now.getTime();
+  let high = low + 36 * 60 * 60 * 1000;
+
+  while (getNairobiDateKey(new Date(high)) === today) {
+    high += 12 * 60 * 60 * 1000;
+  }
+
+  while (high - low > 1000) {
+    const midpoint = Math.floor((low + high) / 2);
+    if (getNairobiDateKey(new Date(midpoint)) === today) low = midpoint;
+    else high = midpoint;
+  }
+
+  return Math.max(1, Math.ceil((high - now.getTime()) / 1000));
 }
 
 const allowedTaskCategories = new Set([
