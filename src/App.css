@@ -3804,6 +3804,23 @@ html[data-theme='light'] .welcome-copy {
   border-color: #dce3d7;
 }
 
+html[data-theme='light'] .app-content .hero-visual-caption {
+  padding: 14px 16px;
+  border: 1px solid rgba(223, 249, 183, 0.24);
+  border-radius: 16px;
+  background: rgba(7, 19, 15, 0.84);
+  box-shadow: 0 14px 32px rgba(5, 12, 8, 0.28);
+  backdrop-filter: blur(12px);
+}
+
+html[data-theme='light'] .app-content .hero-visual-caption span {
+  color: #dff9b7;
+}
+
+html[data-theme='light'] .app-content .hero-visual-caption strong {
+  color: #f4f8f5;
+}
+
 html[data-theme='light'] .welcome-kicker,
 html[data-theme='light'] .home-overline,
 html[data-theme='light'] .welcome-copy h1 em,
