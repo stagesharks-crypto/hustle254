@@ -83,6 +83,47 @@ function formatDate(value) {
   return value ? new Date(value).toLocaleString('en-KE') : 'Date unavailable'
 }
 
+function getTokenClaims(token) {
+  try {
+    const encodedPayload = token.split('.')[1]
+    if (!encodedPayload) return null
+    const base64Payload = encodedPayload.replace(/-/g, '+').replace(/_/g, '/')
+    const paddedPayload = base64Payload.padEnd(Math.ceil(base64Payload.length / 4) * 4, '=')
+    return JSON.parse(atob(paddedPayload))
+  } catch {
+    return null
+  }
+}
+
+function getNairobiDateKey(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Nairobi',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date)
+  const dateParts = Object.fromEntries(parts.map(({ type, value }) => [type, value]))
+  return `${dateParts.year}-${dateParts.month}-${dateParts.day}`
+}
+
+function getNextNairobiMidnightTimestamp(now = new Date()) {
+  const today = getNairobiDateKey(now)
+  let low = now.getTime()
+  let high = low + 36 * 60 * 60 * 1000
+
+  while (getNairobiDateKey(new Date(high)) === today) {
+    high += 12 * 60 * 60 * 1000
+  }
+
+  while (high - low > 1000) {
+    const midpoint = Math.floor((low + high) / 2)
+    if (getNairobiDateKey(new Date(midpoint)) === today) low = midpoint
+    else high = midpoint
+  }
+
+  return high
+}
+
 function getUserInitials(name, fallback = 'User') {
   const source = String(name || fallback || 'User').trim()
   const parts = source.split(/\s+/).filter(Boolean)
@@ -170,6 +211,7 @@ function App() {
   const [dailyStreakRecord, setDailyStreakRecord] = useState(null)
   const [streakError, setStreakError] = useState('')
   const [streakRefreshVersion, setStreakRefreshVersion] = useState(0)
+  const [sessionNotice, setSessionNotice] = useState('')
   const [session, setSession] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('hustle254-session') || 'null')
@@ -251,6 +293,51 @@ function App() {
   }, [hasStreakAccess, session?.token, session?.user?.id, streakRefreshVersion])
 
   useEffect(() => {
+    if (!session?.token) return undefined
+
+    const claims = getTokenClaims(session.token)
+    const role = session.user?.role
+    const isDailySession = ['user', 'poster'].includes(role)
+    const now = new Date()
+    let expiresAt = claims?.exp ? Number(claims.exp) * 1000 : now.getTime()
+
+    if (isDailySession) {
+      const issuedDate = claims?.iat ? getNairobiDateKey(new Date(Number(claims.iat) * 1000)) : ''
+      if (issuedDate !== getNairobiDateKey(now)) expiresAt = now.getTime()
+      expiresAt = Math.min(expiresAt, getNextNairobiMidnightTimestamp(now))
+    }
+
+    let timer
+    const expireSession = () => {
+      const remaining = expiresAt - Date.now()
+      if (remaining > 0) {
+        timer = window.setTimeout(expireSession, remaining + 250)
+        return
+      }
+      localStorage.removeItem('hustle254-session')
+      setSession(null)
+      setDailyStreakRecord(null)
+      setStreakError('')
+      setProfileMenuOpen(false)
+      setProfileModalOpen(false)
+      setSessionNotice(isDailySession
+        ? 'Your daily sign-in ended at midnight. Log in again to record today’s streak check-in.'
+        : 'Your session has expired. Please log in again.')
+      setNavigationRoot('Login')
+    }
+
+    timer = window.setTimeout(expireSession, Math.max(0, expiresAt - Date.now()) + 250)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && Date.now() >= expiresAt) expireSession()
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [session?.token, session?.user?.role])
+
+  useEffect(() => {
     const resetToken = new URLSearchParams(window.location.search).get('reset')
     if (resetToken) {
       setCurrentPage('Reset password')
@@ -307,6 +394,10 @@ function App() {
   function handleAuthenticated(nextSession) {
     localStorage.setItem('hustle254-session', JSON.stringify(nextSession))
     setSession(nextSession)
+    setSessionNotice('')
+    setDailyStreakRecord(null)
+    setStreakError('')
+    setStreakRefreshVersion((version) => version + 1)
     const landingPage = nextSession.user.role === 'admin'
       ? 'Admin'
       : nextSession.user.role === 'poster'
@@ -350,6 +441,8 @@ function App() {
   function handleSignOut() {
     localStorage.removeItem('hustle254-session')
     setSession(null)
+    setDailyStreakRecord(null)
+    setStreakError('')
     setProfileMenuOpen(false)
     setProfileModalOpen(false)
     setNavigationRoot('Home')
@@ -629,7 +722,10 @@ function App() {
           )}
         </header>
 
-        <main>{renderPage()}</main>
+        <main>
+          {!session && sessionNotice && <div className="submission-success" role="status">{sessionNotice}</div>}
+          {renderPage()}
+        </main>
 
         {session && (
           <ProfileModal
