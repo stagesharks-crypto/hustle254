@@ -16,12 +16,28 @@
 }
 
 .side-menu .brand-wrap {
+  flex: 0 0 auto;
   margin: 0 8px 38px;
 }
 
 .side-nav {
+  flex: 1 1 auto;
+  min-height: 0;
   display: grid;
   gap: 5px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(197, 237, 111, 0.35) transparent;
+}
+
+.side-nav::-webkit-scrollbar {
+  width: 6px;
+}
+
+.side-nav::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(197, 237, 111, 0.35);
 }
 
 .side-nav-label {
@@ -79,6 +95,7 @@
 }
 
 .side-menu-footer {
+  flex: 0 0 auto;
   margin-top: auto;
   padding: 16px 14px 14px;
   border: 1px solid rgba(245, 215, 110, 0.14);
