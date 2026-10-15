@@ -1020,6 +1020,9 @@ function StreakPage({ streak, loading, error, onRetry, setCurrentPage }) {
           <div><span className="eyebrow">YOUR REWARDS</span><h2>Bonus history</h2></div>
           <div className="streak-lifetime-total"><strong>{streak?.totalRewards ?? '—'}</strong><small>bonuses earned · KSh {Number(streak?.totalRewardsKes || 0).toFixed(2)} total</small></div>
         </div>
+        <p className="streak-history-summary">
+          Best recorded streak: {streak?.longestStreak ?? '—'} days · Saved check-ins: {streak?.totalCheckIns ?? '—'}
+        </p>
         {recentRewards.length > 0 ? (
           <div className="streak-reward-list">
             {recentRewards.map((reward) => (

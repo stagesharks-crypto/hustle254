@@ -3436,6 +3436,12 @@ button:disabled {
   text-align: right;
 }
 
+.streak-history-summary {
+  margin: 0 0 10px;
+  color: #899a91;
+  font-size: 0.78rem;
+}
+
 .streak-reward-row {
   display: flex;
   align-items: center;
