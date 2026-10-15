@@ -272,7 +272,9 @@ function App() {
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) || tasks[0] || null
   const hasStreakAccess = Boolean(session?.token && ['user', 'poster'].includes(session.user?.role))
-  const dailyStreak = dailyStreakRecord?.userId === session?.user?.id ? dailyStreakRecord.streak : null
+  const dailyStreak = dailyStreakRecord && dailyStreakRecord.userId === session?.user?.id
+    ? dailyStreakRecord.streak
+    : null
   const streakLoading = hasStreakAccess && !dailyStreak && !streakError
 
   useEffect(() => {
