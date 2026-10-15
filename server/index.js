@@ -25,6 +25,10 @@ const EMAIL_VERIFICATION_TTL_MINUTES = Number(process.env.EMAIL_VERIFICATION_TTL
 const STREAK_REWARD_USD = '0.023';
 const STREAK_REWARD_KES = 2.94;
 const STREAK_TIME_ZONE = 'Africa/Nairobi';
+const USD_TO_KES = 128;
+const MINIMUM_WITHDRAWAL_KES = USD_TO_KES;
+const CPX_APP_ID = process.env.CPX_APP_ID || '';
+const CPX_SURVEY_IFRAME_URL = process.env.CPX_SURVEY_IFRAME_URL || '';
 const EMAIL_VERIFICATION_RESEND_SECONDS = 60;
 const EMAIL_VERIFICATION_MAX_ATTEMPTS = 5;
 const APP_URL = (process.env.APP_URL || process.env.CLIENT_URL || 'http://localhost:4173').replace(/\/$/, '');
@@ -74,6 +78,7 @@ async function verifyDatabase() {
       'user_streak_check_ins',
       'streak_reward_claims',
       'wallet_transactions',
+      'wallet_ledger_entries',
       'tasks',
       'task_posts',
       'task_submissions',
@@ -89,13 +94,13 @@ async function verifyDatabase() {
     const foundTables = new Set(result.rows.map((row) => row.table_name));
     const missingTables = requiredTables.filter((table) => !foundTables.has(table));
     if (missingTables.length) {
-      throw new Error(`Database schema is incomplete (missing: ${missingTables.join(', ')}). Apply db/schema.sql before starting the API.`);
+      throw new Error(`Database schema is incomplete (missing: ${missingTables.join(', ')}). Apply db/schema.sql to a new database, or apply the required migrations to an existing database before starting the API.`);
     }
     const requiredColumns = {
-      users: ['email_verified_at', 'email_verification_code_hash', 'email_verification_expires_at', 'email_verification_requested_at', 'email_verification_attempts'],
+      users: ['email_verified_at', 'email_verification_code_hash', 'email_verification_expires_at', 'email_verification_requested_at', 'email_verification_attempts', 'external_user_id'],
       task_posts: ['poster_user_id'],
       task_submissions: ['task_post_id'],
-      wallet_transactions: ['transaction_type', 'amount_kes', 'status', 'transaction_reference', 'destination'],
+      wallet_transactions: ['transaction_type', 'amount_kes', 'status', 'transaction_reference', 'destination', 'fee_amount_kes'],
     };
     const columnResult = await pool.query(
       `SELECT table_name, column_name FROM information_schema.columns
@@ -106,7 +111,7 @@ async function verifyDatabase() {
     const missingColumns = Object.entries(requiredColumns)
       .flatMap(([table, columns]) => columns.filter((column) => !foundColumns.has(`${table}.${column}`)).map((column) => `${table}.${column}`));
     if (missingColumns.length) {
-      throw new Error(`Database schema is incomplete (missing columns: ${missingColumns.join(', ')}). Apply the latest db/schema.sql before starting the API.`);
+      throw new Error(`Database schema is incomplete (missing columns: ${missingColumns.join(', ')}). Apply db/schema.sql to a new database, or apply the required migrations to an existing database before starting the API.`);
     }
 
     databaseOnline = true;
@@ -141,6 +146,7 @@ function generateToken(user) {
 
 function sanitizeUser(user) {
   const safeUser = { ...user };
+  safeUser.external_user_id = safeUser.external_user_id || safeUser.id;
   delete safeUser.password_hash;
   delete safeUser.google_sub;
   delete safeUser.reset_token_hash;
@@ -408,6 +414,36 @@ function getCalendarDayDifference(previousDate, currentDate) {
     return Date.UTC(year, month - 1, day) / 86400000;
   };
   return toDayNumber(currentDate) - toDayNumber(previousDate);
+}
+
+function getWithdrawalFeeKes(amountKes) {
+  if (amountKes <= USD_TO_KES * 3) return 10;
+  if (amountKes <= USD_TO_KES * 7) return 15;
+  return 25;
+}
+
+function formatWithdrawalKes(amountKes) {
+  return `KSh ${Number(amountKes).toLocaleString('en-KE')}`;
+}
+
+function getCpxSurveyUrl(user) {
+  if (!CPX_APP_ID || !CPX_SURVEY_IFRAME_URL) return null;
+
+  let surveyUrl;
+  try {
+    surveyUrl = new URL(CPX_SURVEY_IFRAME_URL);
+  } catch {
+    throw new Error('CPX_SURVEY_IFRAME_URL must be a valid HTTPS URL.');
+  }
+  if (
+    surveyUrl.protocol !== 'https:'
+    || !/(^|\.)cpx-research\.com$/i.test(surveyUrl.hostname)
+  ) {
+    throw new Error('CPX survey URL must use HTTPS on a cpx-research.com domain.');
+  }
+  surveyUrl.searchParams.set('app_id', CPX_APP_ID);
+  surveyUrl.searchParams.set('ext_user_id', String(user.external_user_id));
+  return surveyUrl.toString();
 }
 
 function calculateStreakStatistics(checkInDates, today) {
@@ -1110,7 +1146,7 @@ app.post('/api/task-posts', requireAuth, requireRole('poster'), async (req, res)
   }
 
   return res.status(201).json({
-    message: 'Your job is in the admin review queue. It will appear in Tasks after approval.',
+    message: 'Your job is in the review queue. It will appear in Tasks after approval.',
     taskPost,
   });
 });
@@ -1297,7 +1333,7 @@ app.post('/api/tasks/:id/submit', requireAuth, async (req, res) => {
   }
 
   return res.status(201).json({
-    message: 'Task proof submitted successfully and moved to admin review.',
+    message: 'Task proof submitted successfully and moved to review.',
     submission,
   });
 });
@@ -1397,13 +1433,41 @@ app.get('/api/user/dashboard', requireAuth, async (req, res) => {
   });
 });
 
+app.get('/api/surveys/config', requireAuth, async (req, res) => {
+  if (!['user', 'poster'].includes(req.user.role)) {
+    return res.status(403).json({ message: 'A user or poster account is required to access surveys.' });
+  }
+  const user = await findUserById(req.user.sub);
+  if (!user) return res.status(404).json({ message: 'User account not found.' });
+  const iframeUrl = getCpxSurveyUrl(user);
+  return res.json({
+    available: Boolean(iframeUrl),
+    iframeUrl,
+    externalUserId: String(user.external_user_id),
+    currency: 'KES',
+    message: iframeUrl ? undefined : 'Survey partner setup is not complete yet.',
+  });
+});
+
 app.get('/api/wallet/transactions', requireAuth, async (req, res) => {
   if (databaseOnline) {
-    const [result, totals] = await Promise.all([
+    const [result, ledger, totals] = await Promise.all([
       pool.query(
-        `SELECT id, transaction_type, amount_kes, status, payment_method,
-                transaction_reference, destination, description, created_at, reviewed_at
+        `SELECT id, transaction_type, amount_kes, fee_amount_kes, status, payment_method,
+                transaction_reference, destination, description, created_at, reviewed_at,
+                NULL::text AS entry_type
          FROM wallet_transactions
+         WHERE user_id = $1
+         ORDER BY created_at DESC
+         LIMIT 100`,
+        [req.user.sub]
+      ),
+      pool.query(
+        `SELECT id, entry_type AS transaction_type, amount_kes, 0::numeric AS fee_amount_kes,
+                'approved'::text AS status, NULL::text AS payment_method,
+                NULL::text AS transaction_reference, NULL::text AS destination,
+                description, created_at, NULL::timestamptz AS reviewed_at, entry_type
+         FROM wallet_ledger_entries
          WHERE user_id = $1
          ORDER BY created_at DESC
          LIMIT 100`,
@@ -1416,13 +1480,16 @@ app.get('/api/wallet/transactions', requireAuth, async (req, res) => {
            COALESCE(SUM(amount_kes) FILTER (WHERE transaction_type = 'deposit' AND status = 'rejected'), 0) AS rejected_deposits_kes,
            COALESCE(SUM(amount_kes) FILTER (WHERE transaction_type = 'withdrawal' AND status = 'pending_review'), 0) AS pending_withdrawals_kes,
            COALESCE(SUM(amount_kes) FILTER (WHERE transaction_type = 'withdrawal' AND status = 'rejected'), 0) AS rejected_withdrawals_kes,
-           COALESCE(SUM(amount_kes) FILTER (WHERE transaction_type = 'withdrawal' AND status = 'approved'), 0) AS withdrawn_kes
+           COALESCE(SUM(amount_kes - fee_amount_kes) FILTER (WHERE transaction_type = 'withdrawal' AND status = 'approved'), 0) AS withdrawn_kes
          FROM wallet_transactions
          WHERE user_id = $1`,
         [req.user.sub]
       ),
     ]);
-    return res.json({ transactions: result.rows, summary: totals.rows[0] });
+    const transactions = [...result.rows, ...ledger.rows]
+      .sort((left, right) => new Date(right.created_at) - new Date(left.created_at))
+      .slice(0, 100);
+    return res.json({ transactions, summary: totals.rows[0] });
   }
   const userTransactions = mockWalletTransactions.filter((item) => String(item.user_id) === String(req.user.sub));
   const sumTransactions = (type, status) => userTransactions
@@ -1436,7 +1503,9 @@ app.get('/api/wallet/transactions', requireAuth, async (req, res) => {
       rejected_deposits_kes: sumTransactions('deposit', 'rejected'),
       pending_withdrawals_kes: sumTransactions('withdrawal', 'pending_review'),
       rejected_withdrawals_kes: sumTransactions('withdrawal', 'rejected'),
-      withdrawn_kes: sumTransactions('withdrawal', 'approved'),
+      withdrawn_kes: userTransactions
+        .filter((item) => item.transaction_type === 'withdrawal' && item.status === 'approved')
+        .reduce((sum, item) => sum + Number(item.amount_kes || 0) - Number(item.fee_amount_kes || 0), 0),
     },
   });
 });
@@ -1467,7 +1536,7 @@ app.post('/api/wallet/deposits', requireAuth, requireRole('poster'), async (req,
       const result = await connection.query(
         `INSERT INTO wallet_transactions
           (wallet_id, user_id, transaction_type, amount_kes, status, payment_method, transaction_reference, description)
-         VALUES ($1, $2, 'deposit', $3, 'pending_review', $4, $5, 'Poster deposit awaiting manual verification')
+         VALUES ($1, $2, 'deposit', $3, 'pending_review', $4, $5, 'Poster deposit awaiting verification')
          RETURNING id, transaction_type, amount_kes, status, payment_method, transaction_reference, created_at`,
         [wallet.id, req.user.sub, amount, paymentMethod, transactionReference]
       );
@@ -1483,7 +1552,7 @@ app.post('/api/wallet/deposits', requireAuth, requireRole('poster'), async (req,
       connection.release();
     }
     return res.status(201).json({
-      message: 'Deposit reference submitted. Funds will be added after admin verification.',
+      message: 'Deposit reference submitted for verification.',
       transaction,
     });
   }
@@ -1502,7 +1571,7 @@ app.post('/api/wallet/deposits', requireAuth, requireRole('poster'), async (req,
     created_at: new Date().toISOString(),
   };
   mockWalletTransactions.unshift(transaction);
-  return res.status(201).json({ message: 'Deposit reference submitted. Funds will be added after admin verification.', transaction });
+  return res.status(201).json({ message: 'Deposit reference submitted for verification.', transaction });
 });
 
 app.post('/api/wallet/withdrawals', requireAuth, async (req, res) => {
@@ -1513,6 +1582,10 @@ app.post('/api/wallet/withdrawals', requireAuth, async (req, res) => {
   const paymentMethod = String(req.body?.paymentMethod || '').trim().toLowerCase();
   const destination = String(req.body?.destination || '').trim();
   if (!amount) return res.status(400).json({ message: 'Enter a valid withdrawal amount in KSh.' });
+  if (amount < MINIMUM_WITHDRAWAL_KES) {
+    return res.status(400).json({ message: `The minimum withdrawal is $1.00 (${formatWithdrawalKes(MINIMUM_WITHDRAWAL_KES)}).` });
+  }
+  const feeAmount = getWithdrawalFeeKes(amount);
   if (!allowedWithdrawalMethods.has(paymentMethod)) {
     return res.status(400).json({ message: 'Choose M-Pesa, PayPal, cryptocurrency, till, or bank transfer.' });
   }
@@ -1536,14 +1609,14 @@ app.post('/api/wallet/withdrawals', requireAuth, async (req, res) => {
       }
       if (Number(wallet.balance_kes) < amount) {
         await connection.query('ROLLBACK');
-        return res.status(400).json({ message: 'Insufficient available balance for this withdrawal.' });
+        return res.status(400).json({ message: 'Only confirmed, eligible funds in your available balance can be requested for withdrawal.' });
       }
       const result = await connection.query(
         `INSERT INTO wallet_transactions
-          (wallet_id, user_id, transaction_type, amount_kes, status, payment_method, destination, description)
-         VALUES ($1, $2, 'withdrawal', $3, 'pending_review', $4, $5, 'Withdrawal request awaiting manual admin processing')
-         RETURNING id, transaction_type, amount_kes, status, payment_method, destination, created_at`,
-        [wallet.id, req.user.sub, amount, paymentMethod, destination]
+          (wallet_id, user_id, transaction_type, amount_kes, fee_amount_kes, status, payment_method, destination, description)
+         VALUES ($1, $2, 'withdrawal', $3, $4, 'pending_review', $5, $6, 'Withdrawal request')
+         RETURNING id, transaction_type, amount_kes, fee_amount_kes, status, payment_method, destination, created_at`,
+        [wallet.id, req.user.sub, amount, feeAmount, paymentMethod, destination]
       );
       [transaction] = result.rows;
       await connection.query(
@@ -1560,7 +1633,7 @@ app.post('/api/wallet/withdrawals', requireAuth, async (req, res) => {
       connection.release();
     }
     return res.status(201).json({
-      message: 'Withdrawal request sent to admin. The requested amount is reserved until the request is approved or rejected.',
+      message: 'Your withdrawal request has been submitted. The requested amount is reserved until it is completed or declined.',
       transaction,
     });
   }
@@ -1568,7 +1641,7 @@ app.post('/api/wallet/withdrawals', requireAuth, async (req, res) => {
   const wallet = getMockWalletByUserId(req.user.sub);
   if (!wallet) return res.status(409).json({ message: 'Your wallet record is unavailable. Contact support.' });
   if (Number(wallet.balance_kes) < amount) {
-    return res.status(400).json({ message: 'Insufficient available balance for this withdrawal.' });
+    return res.status(400).json({ message: 'Only confirmed, eligible funds in your available balance can be requested for withdrawal.' });
   }
   wallet.balance_kes = Number(wallet.balance_kes) - amount;
   wallet.pending_kes = Number(wallet.pending_kes) + amount;
@@ -1580,11 +1653,12 @@ app.post('/api/wallet/withdrawals', requireAuth, async (req, res) => {
     status: 'pending_review',
     payment_method: paymentMethod,
     destination,
+    fee_amount_kes: feeAmount,
     created_at: new Date().toISOString(),
   };
   mockWalletTransactions.unshift(transaction);
   return res.status(201).json({
-    message: 'Withdrawal request sent to admin. The requested amount is reserved until the request is approved or rejected.',
+    message: 'Your withdrawal request has been submitted. The requested amount is reserved until it is completed or declined.',
     transaction,
   });
 });
@@ -1651,12 +1725,27 @@ app.post('/api/user/streak/check-in', requireAuth, async (req, res) => {
           [req.user.sub, today, STREAK_REWARD_USD, STREAK_REWARD_KES]
         );
         if (claim.rowCount) {
+          const walletResult = await connection.query(
+            'SELECT id FROM wallets WHERE user_id = $1 FOR UPDATE',
+            [req.user.sub]
+          );
+          const wallet = walletResult.rows[0];
+          if (!wallet) throw new Error('Wallet record is missing for the streak reward.');
+          const ledgerEntry = await connection.query(
+            `INSERT INTO wallet_ledger_entries
+              (wallet_id, user_id, entry_type, amount_kes, source_type, source_id, description)
+             VALUES ($1, $2, 'streak_reward', $3, 'streak_reward_claim', $4, 'Seven-day login streak reward')
+             ON CONFLICT (source_type, source_id) DO NOTHING
+             RETURNING id`,
+            [wallet.id, req.user.sub, STREAK_REWARD_KES, claim.rows[0].id]
+          );
+          if (!ledgerEntry.rowCount) throw new Error('The streak reward was already recorded in the wallet ledger.');
           const walletUpdate = await connection.query(
             `UPDATE wallets
              SET balance_kes = balance_kes + $2, updated_at = NOW()
-             WHERE user_id = $1
+             WHERE id = $1
              RETURNING balance_kes`,
-            [req.user.sub, STREAK_REWARD_KES]
+            [wallet.id, STREAK_REWARD_KES]
           );
           if (!walletUpdate.rowCount) throw new Error('Wallet record is missing for the streak reward.');
           rewardEarnedToday = true;
@@ -1987,15 +2076,70 @@ app.patch('/api/admin/tasks/:id/status', requireAuth, requireAdmin, async (req, 
   }
 
   if (databaseOnline) {
-    const result = await pool.query(
-      `UPDATE task_submissions SET status = $2, reviewed_at = NOW()
-       WHERE id = $1 AND status = 'pending_review' RETURNING *`,
-      [req.params.id, status]
-    );
-    if (!result.rows[0]) return res.status(404).json({ message: 'Pending submission not found.' });
+    const connection = await pool.connect();
+    let submission;
+    try {
+      await connection.query('BEGIN');
+      const submissionResult = await connection.query(
+        `SELECT task_submissions.*,
+                COALESCE(tasks.title, task_posts.title) AS task_title,
+                COALESCE(tasks.payout_kes, task_posts.payout_kes) AS reward_kes
+         FROM task_submissions
+         LEFT JOIN tasks ON tasks.id = task_submissions.task_id
+         LEFT JOIN task_posts ON task_posts.id = task_submissions.task_post_id
+         WHERE task_submissions.id = $1 AND task_submissions.status = 'pending_review'
+         FOR UPDATE OF task_submissions`,
+        [req.params.id]
+      );
+      submission = submissionResult.rows[0];
+      if (!submission) {
+        await connection.query('ROLLBACK');
+        return res.status(404).json({ message: 'Pending submission not found.' });
+      }
+      if (status === 'approved') {
+        const amountKes = Number(submission.reward_kes);
+        if (!Number.isFinite(amountKes) || amountKes <= 0) {
+          throw new Error('The task has no valid reward amount; the submission cannot be approved.');
+        }
+        const walletResult = await connection.query(
+          'SELECT id FROM wallets WHERE user_id = $1 FOR UPDATE',
+          [submission.user_id]
+        );
+        const wallet = walletResult.rows[0];
+        if (!wallet) throw new Error('The user wallet is missing; the task reward cannot be credited.');
+        const ledgerEntry = await connection.query(
+          `INSERT INTO wallet_ledger_entries
+            (wallet_id, user_id, entry_type, amount_kes, source_type, source_id, description)
+           VALUES ($1, $2, 'task_reward', $3, 'task_submission', $4, $5)
+           ON CONFLICT (source_type, source_id) DO NOTHING
+           RETURNING id`,
+          [wallet.id, submission.user_id, amountKes, submission.id, `Approved task reward: ${submission.task_title}`]
+        );
+        if (ledgerEntry.rowCount) {
+          await connection.query(
+            'UPDATE wallets SET balance_kes = balance_kes + $2, updated_at = NOW() WHERE id = $1',
+            [wallet.id, amountKes]
+          );
+        }
+      }
+      const updated = await connection.query(
+        `UPDATE task_submissions SET status = $2, reviewed_at = NOW()
+         WHERE id = $1 AND status = 'pending_review' RETURNING *`,
+        [req.params.id, status]
+      );
+      submission = updated.rows[0];
+      await connection.query('COMMIT');
+    } catch (error) {
+      await connection.query('ROLLBACK');
+      throw error;
+    } finally {
+      connection.release();
+    }
     return res.json({
-      message: 'Submission review status updated. This task review does not change the wallet balance.',
-      submission: result.rows[0],
+      message: status === 'approved'
+        ? 'Submission approved and its reward has been credited to the wallet.'
+        : 'Submission declined. No reward was credited.',
+      submission,
     });
   }
 
@@ -2003,10 +2147,33 @@ app.patch('/api/admin/tasks/:id/status', requireAuth, requireAdmin, async (req, 
   if (!submission) {
     return res.status(404).json({ message: 'Submission not found.' });
   }
+  let rewardAmountKes = 0;
+  let rewardWallet = null;
+  if (status === 'approved') {
+    rewardWallet = getMockWalletByUserId(submission.user_id);
+    rewardAmountKes = Number(submission.payout_kes || submission.amount_kes || 0);
+    if (!rewardWallet || !Number.isFinite(rewardAmountKes) || rewardAmountKes <= 0) {
+      return res.status(409).json({ message: 'The task reward or wallet is unavailable; no reward was credited.' });
+    }
+  }
   submission.status = status;
   submission.reviewed_at = new Date().toISOString();
+  if (status === 'approved') {
+    rewardWallet.balance_kes = Number(rewardWallet.balance_kes) + rewardAmountKes;
+    mockWalletTransactions.unshift({
+      id: `task-reward-${submission.id}`,
+      user_id: submission.user_id,
+      transaction_type: 'task_reward',
+      amount_kes: rewardAmountKes,
+      status: 'approved',
+      description: 'Approved task reward',
+      created_at: new Date().toISOString(),
+    });
+  }
   return res.json({
-    message: 'Submission review status updated. This task review does not change the wallet balance.',
+    message: status === 'approved'
+      ? 'Submission approved and its reward has been credited to the wallet.'
+      : 'Submission declined. No reward was credited.',
     submission,
   });
 });
@@ -2024,7 +2191,8 @@ app.get('/api/admin/wallet-transactions', requireAuth, requireAdmin, async (req,
         `SELECT wallet_transactions.id, wallet_transactions.user_id,
                 users.full_name AS user_name, users.email AS user_email, users.role AS user_role,
                 wallet_transactions.transaction_type, wallet_transactions.amount_kes,
-                wallet_transactions.status, wallet_transactions.payment_method,
+               wallet_transactions.fee_amount_kes, wallet_transactions.status,
+               wallet_transactions.payment_method,
                 wallet_transactions.transaction_reference, wallet_transactions.destination,
                 wallet_transactions.description, wallet_transactions.created_at,
                 wallet_transactions.reviewed_at
@@ -2045,7 +2213,7 @@ app.get('/api/admin/wallet-transactions', requireAuth, requireAdmin, async (req,
            COALESCE(SUM(amount_kes) FILTER (WHERE transaction_type = 'deposit' AND status = 'approved'), 0) AS total_received_kes,
            COALESCE(SUM(amount_kes) FILTER (WHERE transaction_type = 'deposit' AND status = 'pending_review'), 0) AS pending_deposits_kes,
            COALESCE(SUM(amount_kes) FILTER (WHERE transaction_type = 'deposit' AND status = 'rejected'), 0) AS rejected_deposits_kes,
-           COALESCE(SUM(amount_kes) FILTER (WHERE transaction_type = 'withdrawal' AND status = 'approved'), 0) AS total_withdrawn_kes,
+           COALESCE(SUM(amount_kes - fee_amount_kes) FILTER (WHERE transaction_type = 'withdrawal' AND status = 'approved'), 0) AS total_withdrawn_kes,
            COALESCE(SUM(amount_kes) FILTER (WHERE transaction_type = 'withdrawal' AND status = 'pending_review'), 0) AS pending_withdrawals_kes,
            COALESCE(SUM(amount_kes) FILTER (WHERE transaction_type = 'withdrawal' AND status = 'rejected'), 0) AS rejected_withdrawals_kes,
            COUNT(*) FILTER (WHERE status = 'pending_review')::int AS pending_transactions_count,
@@ -2071,7 +2239,9 @@ app.get('/api/admin/wallet-transactions', requireAuth, requireAdmin, async (req,
       total_received_kes: sumTransactions('deposit', 'approved'),
       pending_deposits_kes: sumTransactions('deposit', 'pending_review'),
       rejected_deposits_kes: sumTransactions('deposit', 'rejected'),
-      total_withdrawn_kes: sumTransactions('withdrawal', 'approved'),
+      total_withdrawn_kes: mockWalletTransactions
+        .filter((item) => item.transaction_type === 'withdrawal' && item.status === 'approved')
+        .reduce((sum, item) => sum + Number(item.amount_kes || 0) - Number(item.fee_amount_kes || 0), 0),
       pending_withdrawals_kes: sumTransactions('withdrawal', 'pending_review'),
       rejected_withdrawals_kes: sumTransactions('withdrawal', 'rejected'),
       pending_transactions_count: mockWalletTransactions.filter((item) => item.status === 'pending_review').length,
@@ -2119,9 +2289,11 @@ app.patch('/api/admin/wallet-transactions/:id/status', requireAuth, requireAdmin
       } else if (transaction.transaction_type === 'withdrawal' && status === 'approved') {
         await connection.query(
           `UPDATE wallets
-           SET pending_kes = pending_kes - $2, withdrawn_kes = withdrawn_kes + $2, updated_at = NOW()
+           SET pending_kes = pending_kes - $2,
+               withdrawn_kes = withdrawn_kes + $2 - $3,
+               updated_at = NOW()
            WHERE id = $1`,
-          [transaction.wallet_id, transaction.amount_kes]
+          [transaction.wallet_id, transaction.amount_kes, transaction.fee_amount_kes]
         );
       } else if (transaction.transaction_type === 'withdrawal' && status === 'rejected') {
         await connection.query(
@@ -2137,7 +2309,7 @@ app.patch('/api/admin/wallet-transactions/:id/status', requireAuth, requireAdmin
          SET status = $2, reviewer_id = $3, reviewed_at = NOW()
          WHERE id = $1 AND status = 'pending_review'
          RETURNING id, user_id, transaction_type, amount_kes, status, payment_method,
-                   transaction_reference, destination, description, created_at, reviewed_at`,
+                   fee_amount_kes, transaction_reference, destination, description, created_at, reviewed_at`,
         [req.params.id, status, req.user.sub]
       );
       [transaction] = updated.rows;
@@ -2151,9 +2323,9 @@ app.patch('/api/admin/wallet-transactions/:id/status', requireAuth, requireAdmin
     return res.json({
       transaction,
       message: transaction.transaction_type === 'deposit' && status === 'approved'
-        ? 'Deposit verified and credited to the poster wallet.'
+        ? 'Deposit verified and credited to the wallet.'
         : transaction.transaction_type === 'withdrawal' && status === 'approved'
-          ? 'Withdrawal approved. Complete the manual transfer to the recorded destination.'
+          ? 'Withdrawal request completed.'
           : transaction.transaction_type === 'withdrawal'
             ? 'Withdrawal rejected and reserved funds returned to the available wallet balance.'
             : 'Deposit rejected. No wallet credit was made.',
@@ -2171,7 +2343,7 @@ app.patch('/api/admin/wallet-transactions/:id/status', requireAuth, requireAdmin
     wallet.balance_kes = Number(wallet.balance_kes) + amount;
   } else if (transaction.transaction_type === 'withdrawal' && status === 'approved') {
     wallet.pending_kes = Number(wallet.pending_kes) - amount;
-    wallet.withdrawn_kes = Number(wallet.withdrawn_kes) + amount;
+    wallet.withdrawn_kes = Number(wallet.withdrawn_kes) + amount - Number(transaction.fee_amount_kes || 0);
   } else if (transaction.transaction_type === 'withdrawal' && status === 'rejected') {
     wallet.balance_kes = Number(wallet.balance_kes) + amount;
     wallet.pending_kes = Number(wallet.pending_kes) - amount;
@@ -2182,9 +2354,9 @@ app.patch('/api/admin/wallet-transactions/:id/status', requireAuth, requireAdmin
   return res.json({
     transaction,
     message: transaction.transaction_type === 'deposit' && status === 'approved'
-      ? 'Deposit verified and credited to the poster wallet.'
+      ? 'Deposit verified and credited to the wallet.'
       : transaction.transaction_type === 'withdrawal' && status === 'approved'
-        ? 'Withdrawal approved. Complete the manual transfer to the recorded destination.'
+        ? 'Withdrawal request completed.'
         : transaction.transaction_type === 'withdrawal'
           ? 'Withdrawal rejected and reserved funds returned to the available wallet balance.'
           : 'Deposit rejected. No wallet credit was made.',
