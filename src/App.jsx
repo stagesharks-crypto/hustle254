@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import './App.css'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
+const USD_TO_KES = 128
+const MINIMUM_WITHDRAWAL_KES = USD_TO_KES
 const depositPaymentDetails = [
   { method: 'M-Pesa direct', detail: 'Send to 0740582544.' },
   { method: 'M-Pesa Till', detail: 'Send to Till 4962757.' },
@@ -79,6 +81,19 @@ function formatKes(value) {
   return `KSh ${Number(value || 0).toLocaleString('en-KE')}`
 }
 
+function formatKesWithUsd(value) {
+  const amount = Number(value || 0)
+  return `${formatKes(amount)} ($${(amount / USD_TO_KES).toFixed(2)})`
+}
+
+function getWithdrawalFeeKes(amountKes) {
+  const amount = Number(amountKes)
+  if (!Number.isFinite(amount) || amount < MINIMUM_WITHDRAWAL_KES) return 0
+  if (amount <= USD_TO_KES * 3) return 10
+  if (amount <= USD_TO_KES * 7) return 15
+  return 25
+}
+
 function formatDate(value) {
   return value ? new Date(value).toLocaleString('en-KE') : 'Date unavailable'
 }
@@ -135,15 +150,14 @@ function getUserInitials(name, fallback = 'User') {
 const publicNavigation = [
   { label: 'Home', icon: 'H' },
   { label: 'Tasks', icon: 'T' },
+  { label: 'Surveys', icon: 'S' },
   { label: 'Features', icon: 'F' },
 ]
 
 const learningNavigation = [
   { label: 'About', icon: 'A' },
   { label: 'Contact', icon: '@' },
-  { label: 'How it works', icon: 'i' },
-  { label: 'Trust', icon: 'T' },
-  { label: 'Legal', icon: 'L' },
+  { label: 'Learn & policies', icon: 'i' },
 ]
 
 const accountNavigation = [
@@ -158,8 +172,8 @@ const memberPages = new Set(['Tasks', 'Wallet', 'Streaks', 'Referral', 'Dashboar
 const howSteps = [
   { title: 'Create your account', text: 'Sign up quickly with your phone number, profile basics, and KYC-friendly verification.' },
   { title: 'Complete trusted tasks', text: 'Take surveys, social tasks, app trials, and offer missions with transparent reward values.' },
-  { title: 'Submit proof securely', text: 'Use live-photo validation and admin review to prevent fake or duplicate submissions.' },
-  { title: 'Withdraw in your preferred method', text: 'Request a manual payout to M-Pesa, PayPal, USDT, Till, or a bank account.' },
+  { title: 'Submit proof securely', text: 'Use the requested proof method and allow time for eligibility and quality checks.' },
+  { title: 'Withdraw in your preferred method', text: 'Submit a payout request to M-Pesa, PayPal, USDT, Till, or a bank account.' },
 ]
 
 const featureCards = [
@@ -167,7 +181,7 @@ const featureCards = [
   { title: 'Referral machine', text: 'Tier-based commissions and referral dashboards for stable user growth.', tag: 'Growth loop' },
   { title: 'Streak boosters', text: 'Daily rewards, milestones, and seasonal bonuses to improve retention.', tag: 'Retention' },
   { title: 'Wallet transparency', text: 'Track pending, approved, rejected, and withdrawn balances in real time.', tag: 'Trust' },
-  { title: 'Fraud shield', text: 'Camera-only proof capture, IP/device checks, and admin review queue.', tag: 'Security' },
+  { title: 'Fraud shield', text: 'Camera-only proof capture, IP/device checks, and a consistent review process.', tag: 'Security' },
   { title: 'Admin control center', text: 'Approve payouts, manage campaigns, detect abuse, and monitor analytics.', tag: 'Operations' },
 ]
 
@@ -524,6 +538,10 @@ function App() {
         )
       case 'Tasks':
         return <TasksPage tasks={tasks} selectedTask={selectedTask} setSelectedTask={setSelectedTaskId} loading={tasksLoading} error={tasksError} session={session} />
+      case 'Surveys':
+        return session && ['user', 'poster'].includes(session.user.role)
+          ? <SurveyPage session={session} setCurrentPage={setCurrentPage} />
+          : <SignInRequiredPage setCurrentPage={setCurrentPage} />
       case 'Post a task':
         return session?.user?.role === 'poster'
           ? <PostTaskPage onSubmit={createTaskPost} user={session.user} />
@@ -555,7 +573,10 @@ function App() {
           />
         )
       case 'Trust':
-        return <TrustPage />
+        return <LearnPage setCurrentPage={setCurrentPage} />
+      case 'How it works':
+      case 'Learn & policies':
+        return <LearnPage setCurrentPage={setCurrentPage} />
       case 'About':
         return <AboutPage setCurrentPage={setCurrentPage} />
       case 'Contact':
@@ -567,7 +588,7 @@ function App() {
       case 'Earning rules':
         return <EarningRulesPage setCurrentPage={setCurrentPage} />
       case 'Legal':
-        return <LegalPage setCurrentPage={setCurrentPage} />
+        return <LearnPage setCurrentPage={setCurrentPage} />
       case 'Forgot password':
         return <ForgotPasswordPage onBack={() => setCurrentPage('Login')} />
       case 'Reset password':
@@ -759,10 +780,7 @@ function App() {
             <button type="button" onClick={() => setCurrentPage('Home')}>Home</button>
             <button type="button" onClick={() => setCurrentPage('About')}>About</button>
             <button type="button" onClick={() => setCurrentPage('Contact')}>Contact</button>
-            <button type="button" onClick={() => setCurrentPage('Trust')}>Trust</button>
-            <button type="button" onClick={() => setCurrentPage('Earning rules')}>Earning rules</button>
-            <button type="button" onClick={() => setCurrentPage('Terms')}>Terms</button>
-            <button type="button" onClick={() => setCurrentPage('Privacy')}>Privacy</button>
+            <button type="button" onClick={() => setCurrentPage('Learn & policies')}>Learn &amp; policies</button>
             <button type="button" onClick={() => setCurrentPage('Admin')}>Admin portal</button>
           </div>
         </footer>
@@ -952,6 +970,18 @@ function FeaturesPage({ setCurrentPage, session }) {
               <p>Log in daily to build your streak. Earn $0.023 (KSh 2.94) for every seven consecutive days.</p>
               <span className="feature-card-link">View your streak <span aria-hidden="true">→</span></span>
             </button>
+          ) : feature.title === 'Survey & offer wall' ? (
+            <button
+              key={feature.title}
+              type="button"
+              className="feature-card feature-card-action panel"
+              onClick={() => setCurrentPage('Surveys')}
+            >
+              <span className="tag">{feature.tag}</span>
+              <h3>{feature.title}</h3>
+              <p>{feature.text}</p>
+              <span className="feature-card-link">Explore surveys <span aria-hidden="true">→</span></span>
+            </button>
           ) : (
             <article key={feature.title} className="feature-card panel">
               <span className="tag">{feature.tag}</span>
@@ -965,6 +995,88 @@ function FeaturesPage({ setCurrentPage, session }) {
             </article>
           )
         ))}
+      </div>
+    </div>
+  )
+}
+
+function SurveyPage({ session, setCurrentPage }) {
+  const [surveyConfig, setSurveyConfig] = useState(null)
+  const [loading, setLoading] = useState(Boolean(session?.token))
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!session?.token) {
+      setSurveyConfig(null)
+      setLoading(false)
+      return undefined
+    }
+
+    let active = true
+    setLoading(true)
+    apiRequest('/surveys/config', { token: session.token })
+      .then((config) => { if (active) setSurveyConfig(config) })
+      .catch((requestError) => { if (active) setError(requestError.message) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [session?.token])
+
+  return (
+    <div className="page-wrap survey-page">
+      <PageHeader
+        eyebrow="Hustle254 surveys"
+        title="Share your perspective. Find surveys that fit."
+        subtitle="Survey availability and eligibility vary by location, profile, and current research demand. Available surveys and rewards are supplied by our survey partner."
+        actions={!session && <button type="button" className="btn btn-primary" onClick={() => setCurrentPage('Login')}>Sign in to explore surveys</button>}
+      />
+
+      <section className="survey-provider-panel panel" aria-label="Survey opportunities">
+        <div className="survey-provider-heading">
+          <div>
+            <span className="tag">Survey partner</span>
+            <h2>Available surveys</h2>
+            <p>Answer honestly and review each survey’s screening and reward details before you begin.</p>
+          </div>
+          <span className="survey-status">{loading ? 'Connecting…' : surveyConfig?.available ? 'Partner available' : 'Setup in progress'}</span>
+        </div>
+
+        {error && <div className="form-error" role="alert">{error}</div>}
+        {loading && <p className="survey-empty-state">Connecting securely to the survey partner…</p>}
+        {!session && !loading && <div className="survey-empty-state"><p>Sign in to access surveys linked securely to your account.</p><button type="button" className="btn btn-primary" onClick={() => setCurrentPage('Login')}>Sign in</button></div>}
+        {session && !loading && surveyConfig?.available && surveyConfig.iframeUrl && (
+          <iframe
+            className="survey-iframe"
+            title="Hustle254 survey opportunities"
+            src={surveyConfig.iframeUrl}
+            loading="lazy"
+            referrerPolicy="strict-origin-when-cross-origin"
+            allow="clipboard-write"
+          />
+        )}
+        {session && !loading && !surveyConfig?.available && (
+          <div className="survey-empty-state">
+            <span className="survey-empty-icon" aria-hidden="true">✦</span>
+            <h3>Survey access is being prepared</h3>
+            <p>Survey availability depends on our partner setup and your eligibility. Your Hustle254 account is ready; partner surveys will appear here once the integration is configured.</p>
+          </div>
+        )}
+      </section>
+
+      <div className="survey-notices">
+        <section className="panel info-panel">
+          <span className="tag">Before you start</span>
+          <h3>Screening is part of the survey process</h3>
+          <p>Some surveys may disqualify participants after screening if their profile does not match the research requirements. This is decided by the survey provider; qualifying and completing the survey is required for any eligible reward.</p>
+        </section>
+        <section className="panel info-panel">
+          <span className="tag">Need a hand?</span>
+          <h3>Know the rules and get support</h3>
+          <p>Review our earning and reward rules before participating. If a completed survey or reward appears missing, contact support with your account email and survey reference—never share your password or verification code.</p>
+          <div className="survey-page-actions">
+            <button type="button" className="btn btn-secondary" onClick={() => setCurrentPage('Earning rules')}>Earning &amp; reward rules</button>
+            <button type="button" className="btn btn-secondary" onClick={() => setCurrentPage('Contact')}>Contact support</button>
+          </div>
+        </section>
       </div>
     </div>
   )
@@ -1243,7 +1355,7 @@ function PostTaskPage({ onSubmit }) {
           <span className="success-mark" aria-hidden="true">✓</span>
           <div>
             <strong>Request sent for review</strong>
-            <p>{submittedPost.title} is pending approval. It will appear in Tasks after an admin approves it.</p>
+            <p>{submittedPost.title} is pending review. It will appear in Tasks after approval.</p>
           </div>
         </div>
       )}
@@ -1326,7 +1438,7 @@ function PostTaskPage({ onSubmit }) {
             <li>Approved posts appear in the Tasks catalog.</li>
             <li>Participants submit proof through the task page.</li>
           </ol>
-          <p className="budget-disclaimer">Submitting a post does not collect or hold funds. An admin must verify the reward budget before approval.</p>
+          <p className="budget-disclaimer">Submitting a post does not collect or hold funds. The reward budget must be verified before the task is approved.</p>
         </aside>
       </div>
     </div>
@@ -1403,6 +1515,7 @@ function PosterPage({ session, setCurrentPage }) {
             <div className="history-row"><strong>Name</strong><span>{data?.account.full_name || session.user.full_name}</span></div>
             <div className="history-row"><strong>Email</strong><span>{data?.account.email || session.user.email}</span></div>
             <div className="history-row"><strong>Phone</strong><span>{data?.account.phone || session.user.phone || 'Not provided'}</span></div>
+            <div className="history-row"><strong>External account ID</strong><span>{data?.account.external_user_id || session.user.external_user_id || session.user.id}</span></div>
             <div className="history-row"><strong>Account status</strong><span>{data?.account.status || 'Active'}</span></div>
           </div>
         </section>
@@ -1410,7 +1523,7 @@ function PosterPage({ session, setCurrentPage }) {
         <section className="panel poster-billing-panel">
           <h2>Balance and billing</h2>
           <p className="status-badge">Manual payment review</p>
-          <p>Your current available balance is shown in Wallet. Deposits are added after an admin verifies your transaction reference; withdrawals are also reviewed and processed manually.</p>
+          <p>Your current available balance is shown in Wallet. Deposit references are verified before funds are added; withdrawal requests are reviewed before completion.</p>
           <p>Task post budget estimates do not automatically reserve funds or escrow rewards.</p>
           <button type="button" className="btn btn-secondary" onClick={() => setCurrentPage('Wallet')}>Open poster wallet</button>
         </section>
@@ -1527,7 +1640,7 @@ function WalletPage({ session, streakDate }) {
       <PageHeader
         eyebrow="Wallet"
         title={isPoster ? 'Deposit funds and manage your poster balance.' : 'Withdraw your available balance.'}
-        subtitle="Transactions are recorded against your wallet. Deposits and withdrawals are manually reviewed by an administrator."
+        subtitle="Your wallet history records deposits, rewards, and withdrawal requests, with clear status and eligible available balance."
       />
 
       {error && <div className="form-error" role="alert">{error}</div>}
@@ -1540,13 +1653,13 @@ function WalletPage({ session, streakDate }) {
         </div>
         <div className="wallet-balance-grid">
           {[
-            ['Available', dashboard?.wallet ? formatKes(dashboard.wallet.balance_kes) : 'Not recorded', 'Ready to withdraw', 'available'],
-            ['Deposits pending', transactionSummary ? formatKes(transactionSummary.pending_deposits_kes) : '—', 'Awaiting verification', 'pending'],
-            ['Deposits approved', transactionSummary ? formatKes(transactionSummary.approved_deposits_kes) : '—', 'Verified funds received', 'approved'],
-            ['Deposits rejected', transactionSummary ? formatKes(transactionSummary.rejected_deposits_kes) : '—', 'Not credited to balance', 'rejected'],
-            ['Withdrawals pending', transactionSummary ? formatKes(transactionSummary.pending_withdrawals_kes) : '—', 'Reserved for review', 'pending'],
-            ['Withdrawals rejected', transactionSummary ? formatKes(transactionSummary.rejected_withdrawals_kes) : '—', 'Returned to available', 'rejected'],
-            ['Total withdrawn', dashboard?.wallet ? formatKes(dashboard.wallet.withdrawn_kes) : transactionSummary ? formatKes(transactionSummary.withdrawn_kes) : '—', 'Manually settled payouts', 'withdrawn'],
+            ['Available', dashboard?.wallet ? formatKesWithUsd(dashboard.wallet.balance_kes) : 'Not recorded', 'Confirmed and eligible funds', 'available'],
+            ['Deposits pending', transactionSummary ? formatKesWithUsd(transactionSummary.pending_deposits_kes) : '—', 'Awaiting verification', 'pending'],
+            ['Deposits approved', transactionSummary ? formatKesWithUsd(transactionSummary.approved_deposits_kes) : '—', 'Verified funds received', 'approved'],
+            ['Deposits rejected', transactionSummary ? formatKesWithUsd(transactionSummary.rejected_deposits_kes) : '—', 'Not credited to balance', 'rejected'],
+            ['Withdrawals pending', transactionSummary ? formatKesWithUsd(transactionSummary.pending_withdrawals_kes) : '—', 'Reserved for review', 'pending'],
+            ['Withdrawals rejected', transactionSummary ? formatKesWithUsd(transactionSummary.rejected_withdrawals_kes) : '—', 'Returned to available', 'rejected'],
+            ['Total withdrawn', dashboard?.wallet ? formatKesWithUsd(dashboard.wallet.withdrawn_kes) : transactionSummary ? formatKesWithUsd(transactionSummary.withdrawn_kes) : '—', 'Net paid after fees', 'withdrawn'],
           ].map(([label, value, detail, kind]) => (
             <article className={`wallet-balance-card wallet-balance-${kind}`} key={label}>
               <span>{label}</span>
@@ -1561,8 +1674,8 @@ function WalletPage({ session, streakDate }) {
         <div className="panel payout-methods">
           <h3>{isPoster ? 'Poster deposits' : 'Wallet controls'}</h3>
           {isPoster
-            ? <p>Use the official payment details below, then submit the exact transfer reference and KSh-equivalent amount. Funds are added only after admin verification.</p>
-            : <p>Choose a withdrawal method and destination. The amount is reserved while your request is reviewed. Rejected requests return to your available balance.</p>}
+            ? <p>Use the official payment details below, then submit the exact transfer reference and KSh amount. Funds are added only after the reference is verified.</p>
+            :             <p>Choose a withdrawal method and destination. Only confirmed, eligible funds can be requested. The amount is reserved while your request is reviewed; declined requests return to your available balance.</p>}
           {isPoster && <div className="deposit-instructions">
             {depositPaymentDetails.map((item) => (
               <div className="method-row" key={item.method}>
@@ -1580,8 +1693,8 @@ function WalletPage({ session, streakDate }) {
         </div>
         <form className="wallet-transaction-form" onSubmit={submitWalletRequest}>
           <label>
-            Amount (KSh)
-            <input type="number" min="1" max="10000000" step="0.01" inputMode="decimal" value={amountKes} onChange={(event) => setAmountKes(event.target.value)} required />
+            {mode === 'deposit' ? 'Amount (KSh)' : 'Withdrawal amount (KSh)'}
+            <input type="number" min={mode === 'withdraw' ? MINIMUM_WITHDRAWAL_KES : '1'} max="10000000" step="0.01" inputMode="decimal" value={amountKes} onChange={(event) => setAmountKes(event.target.value)} required />
           </label>
           {mode === 'deposit' ? <>
             <label>
@@ -1609,10 +1722,15 @@ function WalletPage({ session, streakDate }) {
               {destinationLabel}
               <input value={destination} onChange={(event) => setDestination(event.target.value)} maxLength="300" required placeholder="Enter the destination details for your payout" />
             </label>
-            <p className="wallet-form-note wallet-form-wide">Your available balance decreases when you submit. After the admin manually sends the payout, approval settles it; rejection returns the reserved amount.</p>
+            <div className="withdrawal-fee-note wallet-form-wide">
+              <strong>Minimum request: {formatKesWithUsd(MINIMUM_WITHDRAWAL_KES)}</strong>
+              <p>Service and risk costs: KSh 10 for KSh 128–384 ($1.00–$3.00); KSh 15 above KSh 384 through KSh 896 ($3.01–$7.00); KSh 25 above KSh 896 (over $7.00).</p>
+              {Number(amountKes) >= MINIMUM_WITHDRAWAL_KES && <p>Request: {formatKesWithUsd(amountKes)} · Fee: {formatKes(getWithdrawalFeeKes(amountKes))} · Estimated payout: {formatKesWithUsd(Number(amountKes) - getWithdrawalFeeKes(amountKes))}</p>}
+              <p>Only confirmed, eligible wallet funds are accepted. Your request stays visible in transaction history; the available amount is reserved while it is being processed.</p>
+            </div>
           </>}
           <button type="submit" className="btn btn-primary wallet-form-wide" disabled={submitting}>
-            {submitting ? 'Submitting…' : mode === 'deposit' ? 'Submit deposit for verification' : 'Send withdrawal request to admin'}
+            {submitting ? 'Submitting…' : mode === 'deposit' ? 'Submit deposit for verification' : 'Submit withdrawal request'}
           </button>
         </form>
       </section>
@@ -1626,7 +1744,11 @@ function WalletPage({ session, streakDate }) {
           {transactions.map((item) => (
             <article key={item.id} className="wallet-ledger-row">
               <div className="wallet-ledger-main">
-                <strong>{item.transaction_type === 'deposit' ? 'Deposit' : 'Withdrawal'} · {item.transaction_type === 'deposit' ? '+' : '-'}{formatKes(item.amount_kes)}</strong>
+                <strong>{item.transaction_type === 'deposit'
+                  ? `Deposit · +${formatKesWithUsd(item.amount_kes)}`
+                  : ['task_reward', 'streak_reward', 'survey_reward', 'referral_reward'].includes(item.transaction_type)
+                    ? `${({ task_reward: 'Task reward', streak_reward: 'Streak reward', survey_reward: 'Survey reward', referral_reward: 'Referral reward' })[item.transaction_type]} · +${formatKesWithUsd(item.amount_kes)}`
+                    : `Withdrawal · -${formatKesWithUsd(item.amount_kes)}${Number(item.fee_amount_kes) ? ` · Fee ${formatKes(item.fee_amount_kes)}` : ''}`}</strong>
                 <small>{walletMethodLabels[item.payment_method] || item.description || 'Wallet activity'}{item.transaction_reference ? ` · Reference ${item.transaction_reference}` : ''}</small>
                 <small>{formatDate(item.created_at)}{item.reviewed_at ? ` · Reviewed ${formatDate(item.reviewed_at)}` : ''}</small>
               </div>
@@ -1714,6 +1836,7 @@ function DashboardPage({ session, streakDate, onOpenProfile }) {
             <span className="profile-summary-tag">Your profile</span>
             <h3>{userName}</h3>
             <small>{session?.user?.email || 'No email on file'}</small>
+            <small className="profile-external-id">Account ID: {session?.user?.external_user_id || session?.user?.id || 'Loading'}</small>
           </div>
         </div>
         <button type="button" className="btn btn-secondary" onClick={onOpenProfile}>Edit profile</button>
@@ -2249,6 +2372,12 @@ function AdminPage({ session, onAuthenticated, onVerifyAdminPassword, taskPosts,
                       <small>{transaction.user_email} · {transaction.user_role} · {formatDate(transaction.created_at)}</small>
                       <div className="wallet-review-facts">
                         <span>{transaction.transaction_type === 'deposit' ? 'Received' : 'Withdrawal'} <strong>{formatKes(transaction.amount_kes)}</strong></span>
+                        {transaction.transaction_type === 'withdrawal' && Number(transaction.fee_amount_kes) > 0 && (
+                          <>
+                            <span>Fee <strong>{formatKes(transaction.fee_amount_kes)}</strong></span>
+                            <span>Estimated payout <strong>{formatKes(Number(transaction.amount_kes) - Number(transaction.fee_amount_kes))}</strong></span>
+                          </>
+                        )}
                         <span>Method <strong>{walletMethodLabels[transaction.payment_method] || transaction.payment_method || 'Not recorded'}</strong></span>
                         {transaction.transaction_type === 'deposit'
                           ? <span>Transfer code / hash <strong>{transaction.transaction_reference || 'Not provided'}</strong></span>
@@ -2536,36 +2665,43 @@ function AdminPage({ session, onAuthenticated, onVerifyAdminPassword, taskPosts,
   )
 }
 
-function TrustPage() {
+function LearnPage({ setCurrentPage }) {
   return (
-    <div className="page-wrap">
+    <div className="page-wrap learn-page">
       <PageHeader
-        eyebrow="Trust & safety"
-        title="Security designed to protect both users and the platform."
-        subtitle="Hustle254 is built to outperform the common weaknesses of older reward sites by focusing on fraud prevention, transparent rules, and operator oversight."
+        eyebrow="Learn & policies"
+        title="Everything you need to know, in one place."
+        subtitle="How tasks work, how we protect a fair experience, and the policies behind your account and rewards."
       />
 
-      <div className="trust-grid">
-        <div className="panel">
-          <h3>Fraud prevention layer</h3>
-          <ul className="check-list compact">
-            {trustChecks.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
+      <section className="learn-section">
+        <div className="learn-section-heading"><span className="eyebrow">01 · HOW IT WORKS</span><h2>Clear steps from opportunity to reward.</h2></div>
+        <div className="steps-grid learn-steps">
+          {howSteps.map((step, index) => (
+            <article className="step-card panel" key={step.title}>
+              <span className="step-number">{String(index + 1).padStart(2, '0')}</span>
+              <h3>{step.title}</h3>
+              <p>{step.text}</p>
+            </article>
+          ))}
         </div>
+      </section>
 
-        <div className="panel">
-          <h3>Platform rules</h3>
-          <ul className="check-list compact">
-            <li>Users must complete tasks in good faith</li>
-            <li>Duplicate or abusive tasks are rejected</li>
-            <li>Bonuses are tied to qualification rules</li>
-            <li>Payout reviews reduce scam risk</li>
-            <li>Support and disputes are trackable</li>
-          </ul>
+      <section className="learn-section">
+        <div className="learn-section-heading"><span className="eyebrow">02 · TRUST & SAFETY</span><h2>Fair participation and clear records.</h2></div>
+        <div className="trust-grid info-grid">
+          <section className="panel info-panel"><h3>Protecting the community</h3><ul className="check-list compact">{trustChecks.map((item) => <li key={item}>{item}</li>)}</ul></section>
+          <section className="panel info-panel"><h3>What you can expect</h3><ul className="check-list compact"><li>Task instructions and displayed rewards before you start.</li><li>Submissions can be reviewed against the listed requirements.</li><li>Wallet activity and request status remain available in your account.</li><li>Support is available for questions and transaction concerns.</li></ul></section>
         </div>
-      </div>
+      </section>
+
+      <section className="learn-section">
+        <div className="learn-section-heading"><span className="eyebrow">03 · POLICIES & REWARDS</span><h2>Read the details that matter to you.</h2></div>
+        <div className="trust-grid info-grid">
+          <section className="panel info-panel"><span className="tag">Participation</span><h3>Earning &amp; reward rules</h3><p>Task eligibility, screening, approval, payout minimums, and fee schedule.</p><button type="button" className="btn btn-secondary" onClick={() => setCurrentPage('Earning rules')}>Read earning rules →</button></section>
+          <section className="panel info-panel"><span className="tag">Your account</span><h3>Terms &amp; privacy</h3><p>How accounts work and how information is used to provide and protect the service.</p><div className="survey-page-actions"><button type="button" className="btn btn-secondary" onClick={() => setCurrentPage('Terms')}>Terms of use</button><button type="button" className="btn btn-secondary" onClick={() => setCurrentPage('Privacy')}>Privacy policy</button></div></section>
+        </div>
+      </section>
     </div>
   )
 }
@@ -2889,7 +3025,7 @@ function AuthPage({ type, onChangeType, onAuthenticated, onVerificationRequested
           <button type="button" role="tab" aria-selected={isPosterLogin} className={isPosterLogin ? 'auth-tab active' : 'auth-tab'} onClick={() => onChangeType('Poster login')}>Login as poster</button>
           <button type="button" role="tab" aria-selected={isPosterSignup} className={isPosterSignup ? 'auth-tab active' : 'auth-tab'} onClick={() => onChangeType('Poster signup')}>Register as poster</button>
         </div>
-        {(isPosterLogin || isPosterSignup) && <p className="auth-intro">Poster accounts use separate login details and can publish tasks, submit deposits for manual review, and track withdrawals.</p>}
+        {(isPosterLogin || isPosterSignup) && <p className="auth-intro">Poster accounts use separate login details and can publish tasks, submit deposits for verification, and track withdrawals.</p>}
 
         {error && <div className="form-error" role="alert">{error}</div>}
         <form className="form-grid" onSubmit={handleAuth}>
@@ -3020,11 +3156,12 @@ function TermsPage() {
         <p className="info-updated">Last updated: 15 October 2026</p>
         <section><h3>1. Your account</h3><p>Provide accurate account details, keep your sign-in credentials private, and use your own account. You are responsible for activity carried out through your account. Contact support promptly if you suspect unauthorized access.</p></section>
         <section><h3>2. Tasks and submissions</h3><p>Read the instructions, eligibility criteria, time limits, and displayed reward before starting. Submit genuine, complete work and only the proof requested. A submission may be reviewed and can be declined if it does not meet the stated requirements or cannot be verified.</p></section>
-        <section><h3>3. Rewards and wallet</h3><p>Task rewards are subject to task completion and review. Displayed balances may include amounts that are pending review and are not necessarily withdrawable. Payout requests are subject to account checks, available balance, accurate destination details, and review; processing times can vary.</p></section>
-        <section><h3>4. Bonuses and referrals</h3><p>Bonuses and referral commissions are governed by the eligibility rules displayed for the specific offer or feature. A bonus is not earned by creating duplicate accounts, manipulating activity, or bypassing verification. We may withhold or reverse an improperly credited reward after review.</p></section>
-        <section><h3>5. Acceptable use</h3><p>Do not submit false proof, interfere with platform security, exploit errors, impersonate others, or use the platform for unlawful activity. We may restrict or suspend an account when reasonably necessary to protect users, task posters, or the platform, and may request additional information to review a case.</p></section>
-        <section><h3>6. Availability and changes</h3><p>Task availability, reward amounts, and features may change. Hustle254 does not guarantee a particular volume of tasks, earnings, or payout timing. We will make reasonable efforts to keep the service available and communicate material changes through the platform where appropriate.</p></section>
-        <section><h3>7. Questions and disputes</h3><p>Contact us with the account email and relevant task or transaction reference so we can review the issue. These terms should be read together with the Privacy Policy and Earning &amp; Reward Rules.</p></section>
+        <section><h3>3. Rewards and wallet</h3><p>Task rewards are subject to completion and verification against the task requirements. A reward is added to your confirmed, eligible wallet balance only after approval. Pending deposits, pending submissions, reserved amounts, and other unconfirmed amounts are not eligible for withdrawal. Wallet activity is recorded in your transaction history.</p></section>
+        <section><h3>4. Withdrawal minimum and service fees</h3><p>The minimum withdrawal request is KSh 128 ($1.00), using the platform’s displayed reference rate of KSh 128 per US dollar. A service and risk fee is deducted from the requested amount: KSh 10 for requests from KSh 128 through KSh 384 ($1.00–$3.00); KSh 15 for amounts above KSh 384 through KSh 896 (over $3.00 through $7.00); and KSh 25 for amounts above KSh 896 (over $7.00). The remaining amount is the estimated payout. The fee covers processing, fraud-risk controls, and related operating costs; it is not a tax imposed by a government. The rate and fees will be shown before you submit the request.</p></section>
+        <section><h3>5. Bonuses and referrals</h3><p>Bonuses and referral commissions are governed by the eligibility rules displayed for the specific offer or feature. A bonus is not earned by creating duplicate accounts, manipulating activity, or bypassing verification. We may withhold or reverse an improperly credited reward after review.</p></section>
+        <section><h3>6. Acceptable use</h3><p>Do not submit false proof, interfere with platform security, exploit errors, impersonate others, or use the platform for unlawful activity. We may restrict or suspend an account when reasonably necessary to protect users, task posters, or the platform, and may request additional information to review a case.</p></section>
+        <section><h3>7. Availability and changes</h3><p>Task availability, reward amounts, and features may change. Hustle254 does not guarantee a particular volume of tasks, earnings, or payout timing. We will make reasonable efforts to keep the service available and communicate material changes through the platform where appropriate.</p></section>
+        <section><h3>8. Questions and disputes</h3><p>Contact us with the account email and relevant task or transaction reference so we can review the issue. These terms should be read together with the Privacy Policy and Earning &amp; Reward Rules.</p></section>
         <p className="info-review-note">Before public launch, confirm these terms against the registered operating entity, final payout timelines, and any applicable local legal requirements.</p>
       </div>
     </div>
@@ -3071,6 +3208,10 @@ function EarningRulesPage({ setCurrentPage }) {
       <section className="panel info-panel info-callout">
         <h3>Daily login streak bonus</h3>
         <p>Eligible user and poster accounts receive one check-in per calendar day in East Africa Time. Seven consecutive daily check-ins qualify for the displayed $0.023 bonus (KSh 2.94). Repeated check-ins on the same day do not add days; missing a calendar day restarts the consecutive run. Check-ins and reward claims are recorded in the account history.</p>
+      </section>
+      <section className="panel info-panel">
+        <h3>Withdrawals and fee schedule</h3>
+        <p>Minimum withdrawal request: {formatKesWithUsd(MINIMUM_WITHDRAWAL_KES)}. A KSh 10 fee applies to KSh 128–384 ($1.00–$3.00); KSh 15 applies above KSh 384 through KSh 896 (over $3.00 through $7.00); KSh 25 applies above KSh 896 (over $7.00). The fee is deducted from the requested amount, so the estimated payout is the request less the applicable fee. Requests may use only confirmed and eligible wallet funds. The KSh 128 per USD figure is a fixed display and fee-band reference, not a live exchange quote.</p>
       </section>
       <section className="panel info-panel">
         <h3>Fair-play rules</h3>
