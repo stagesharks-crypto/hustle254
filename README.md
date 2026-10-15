@@ -33,9 +33,9 @@ Account balances are displayed from the user's `wallets` row. Task progress, ref
 
 ## Daily login streak rewards
 
-Users and posters receive one daily streak check-in automatically when their authenticated session opens. Check-ins are counted by calendar day in `Africa/Nairobi`; repeat checks on the same day do not increase the streak, and a missed day restarts it. Every seventh consecutive login credits `$0.023` (shown in the app with its KSh equivalent) to the account wallet. The reward is credited automatically once per seven-day streak; no claim action is required. Streak progress and reward history are stored in `user_streaks` and `streak_reward_claims`.
+Users and posters receive one daily streak check-in automatically when their authenticated session opens. Check-ins are counted by calendar day in `Africa/Nairobi`; repeat checks on the same day do not increase the streak, and a missed day restarts it. Every seventh consecutive login credits `$0.023` (shown in the app with its KSh equivalent) to the account wallet. The reward is credited automatically once per seven-day streak; no claim action is required. Every check-in is saved in `user_streak_check_ins`; current progress is rebuilt from that history, while `user_streaks` stores the latest progress and `streak_reward_claims` stores paid rewards. The streak page also displays the best recorded consecutive run and number of saved check-ins.
 
-Before deploying streak rewards to an existing database, apply `db/migrations/20261013_daily_streak_rewards.sql` (or apply the updated `db/schema.sql` to a new database). The API checks for these tables at startup and production will not start with the old schema.
+Before deploying streak rewards to an existing database, apply `db/migrations/20261013_daily_streak_rewards.sql` and then `db/migrations/20261015_streak_check_in_history.sql` (or apply the updated `db/schema.sql` to a new database). The history migration backfills dates represented by existing streak progress and seven-day reward claims. Earlier daily check-ins that were never recorded cannot be reconstructed. The API checks for the history table at startup and production will not start until the migration is applied.
 
 ## Appearance
 
