@@ -1585,7 +1585,10 @@ app.post('/api/user/streak/check-in', requireAuth, async (req, res) => {
         [req.user.sub]
       );
       const streakResult = await connection.query(
-        'SELECT current_streak, last_login_date FROM user_streaks WHERE user_id = $1 FOR UPDATE',
+        `SELECT current_streak, TO_CHAR(last_login_date, 'YYYY-MM-DD') AS last_login_date
+         FROM user_streaks
+         WHERE user_id = $1
+         FOR UPDATE`,
         [req.user.sub]
       );
       const streak = streakResult.rows[0];
