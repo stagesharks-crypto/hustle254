@@ -139,6 +139,8 @@ const publicNavigation = [
 ]
 
 const learningNavigation = [
+  { label: 'About', icon: 'A' },
+  { label: 'Contact', icon: '@' },
   { label: 'How it works', icon: 'i' },
   { label: 'Trust', icon: 'T' },
   { label: 'Legal', icon: 'L' },
@@ -167,13 +169,6 @@ const featureCards = [
   { title: 'Wallet transparency', text: 'Track pending, approved, rejected, and withdrawn balances in real time.', tag: 'Trust' },
   { title: 'Fraud shield', text: 'Camera-only proof capture, IP/device checks, and admin review queue.', tag: 'Security' },
   { title: 'Admin control center', text: 'Approve payouts, manage campaigns, detect abuse, and monitor analytics.', tag: 'Operations' },
-]
-
-const legalItems = [
-  'Transparent earning rules and eligibility criteria',
-  'Privacy-first data handling for KYC and payouts',
-  'Anti-fraud activity detection and payout review rules',
-  'Bonus, referral, and withdrawal terms for all users',
 ]
 
 const trustChecks = [
@@ -561,8 +556,18 @@ function App() {
         )
       case 'Trust':
         return <TrustPage />
+      case 'About':
+        return <AboutPage setCurrentPage={setCurrentPage} />
+      case 'Contact':
+        return <ContactPage />
+      case 'Terms':
+        return <TermsPage />
+      case 'Privacy':
+        return <PrivacyPage />
+      case 'Earning rules':
+        return <EarningRulesPage setCurrentPage={setCurrentPage} />
       case 'Legal':
-        return <LegalPage />
+        return <LegalPage setCurrentPage={setCurrentPage} />
       case 'Forgot password':
         return <ForgotPasswordPage onBack={() => setCurrentPage('Login')} />
       case 'Reset password':
@@ -748,11 +753,16 @@ function App() {
           <div>
             <div className="brand-name">Hustle254</div>
             <p>Earn, verify, and withdraw with confidence.</p>
+            <p className="footer-contact">Questions? <a href="mailto:hustleworld254@gmail.com">hustleworld254@gmail.com</a></p>
           </div>
           <div className="footer-links">
             <button type="button" onClick={() => setCurrentPage('Home')}>Home</button>
+            <button type="button" onClick={() => setCurrentPage('About')}>About</button>
+            <button type="button" onClick={() => setCurrentPage('Contact')}>Contact</button>
             <button type="button" onClick={() => setCurrentPage('Trust')}>Trust</button>
-            <button type="button" onClick={() => setCurrentPage('Legal')}>Legal</button>
+            <button type="button" onClick={() => setCurrentPage('Earning rules')}>Earning rules</button>
+            <button type="button" onClick={() => setCurrentPage('Terms')}>Terms</button>
+            <button type="button" onClick={() => setCurrentPage('Privacy')}>Privacy</button>
             <button type="button" onClick={() => setCurrentPage('Admin')}>Admin portal</button>
           </div>
         </footer>
@@ -2933,22 +2943,161 @@ function AuthPage({ type, onChangeType, onAuthenticated, onVerificationRequested
   )
 }
 
-function LegalPage() {
+function AboutPage({ setCurrentPage }) {
+  return (
+    <div className="page-wrap">
+      <PageHeader
+        eyebrow="About Hustle254"
+        title="Small actions. Clear rewards. Built for everyday hustle."
+        subtitle="Hustle254 brings task opportunities, transparent reward information, and account tools together in one place."
+        actions={<button type="button" className="btn btn-primary" onClick={() => setCurrentPage('Tasks')}>Explore tasks <span aria-hidden="true">→</span></button>}
+      />
+      <div className="trust-grid info-grid">
+        <section className="panel info-panel">
+          <span className="tag">Our purpose</span>
+          <h3>Make online opportunities easier to understand.</h3>
+          <p>We want people to see what a task asks, what reward is offered, and how review works before they take part. Clear expectations help participants and task posters work with confidence.</p>
+        </section>
+        <section className="panel info-panel">
+          <span className="tag">How we work</span>
+          <h3>Clarity before claims.</h3>
+          <p>Task completion and payout eligibility depend on the specific task rules and verification. We aim to show progress and wallet activity clearly, and to review submissions fairly.</p>
+        </section>
+      </div>
+      <section className="panel info-panel info-callout">
+        <h3>A platform, not a promise of income</h3>
+        <p>Opportunities and rewards can change, and earnings are not guaranteed. Read the task requirements and earning rules before you begin.</p>
+        <button type="button" className="btn btn-secondary" onClick={() => setCurrentPage('Earning rules')}>Read earning rules</button>
+      </section>
+    </div>
+  )
+}
+
+function ContactPage() {
+  return (
+    <div className="page-wrap">
+      <PageHeader
+        eyebrow="Contact Hustle254"
+        title="We’re here to help you find the right next step."
+        subtitle="Choose the contact method that works for you. Include the email on your account and a short description so we can understand your request."
+      />
+      <div className="trust-grid info-grid">
+        <section className="panel info-panel contact-card">
+          <span className="contact-icon" aria-hidden="true">@</span>
+          <span className="tag">Email support</span>
+          <h3>Send us a message</h3>
+          <p>For account, task, wallet, or general enquiries.</p>
+          <a className="btn btn-primary" href="mailto:hustleworld254@gmail.com">hustleworld254@gmail.com</a>
+        </section>
+        <section className="panel info-panel contact-card">
+          <span className="contact-icon" aria-hidden="true">☎</span>
+          <span className="tag">Call or WhatsApp</span>
+          <h3>Talk to our team</h3>
+          <p>Call or message us on WhatsApp at <strong>+254 736 677 630</strong>.</p>
+          <div className="contact-actions">
+            <a className="btn btn-primary" href="https://wa.me/254736677630" target="_blank" rel="noreferrer">Chat on WhatsApp</a>
+            <a className="btn btn-secondary" href="tel:+254736677630">Call us</a>
+          </div>
+        </section>
+      </div>
+      <section className="panel info-panel">
+        <h3>Help us resolve it faster</h3>
+        <p>Tell us what happened, when it happened, and the task or transaction reference if you have one. Never send your password, one-time verification code, or full payment-card details.</p>
+      </section>
+    </div>
+  )
+}
+
+function TermsPage() {
+  return (
+    <div className="page-wrap">
+      <PageHeader
+        eyebrow="Terms of use"
+        title="A fair, straightforward way to use Hustle254."
+        subtitle="These terms explain the basic expectations for accounts, tasks, rewards, and payouts. By using the platform, you agree to follow the rules shown here and on each task."
+      />
+      <div className="info-document panel">
+        <p className="info-updated">Last updated: 15 October 2026</p>
+        <section><h3>1. Your account</h3><p>Provide accurate account details, keep your sign-in credentials private, and use your own account. You are responsible for activity carried out through your account. Contact support promptly if you suspect unauthorized access.</p></section>
+        <section><h3>2. Tasks and submissions</h3><p>Read the instructions, eligibility criteria, time limits, and displayed reward before starting. Submit genuine, complete work and only the proof requested. A submission may be reviewed and can be declined if it does not meet the stated requirements or cannot be verified.</p></section>
+        <section><h3>3. Rewards and wallet</h3><p>Task rewards are subject to task completion and review. Displayed balances may include amounts that are pending review and are not necessarily withdrawable. Payout requests are subject to account checks, available balance, accurate destination details, and review; processing times can vary.</p></section>
+        <section><h3>4. Bonuses and referrals</h3><p>Bonuses and referral commissions are governed by the eligibility rules displayed for the specific offer or feature. A bonus is not earned by creating duplicate accounts, manipulating activity, or bypassing verification. We may withhold or reverse an improperly credited reward after review.</p></section>
+        <section><h3>5. Acceptable use</h3><p>Do not submit false proof, interfere with platform security, exploit errors, impersonate others, or use the platform for unlawful activity. We may restrict or suspend an account when reasonably necessary to protect users, task posters, or the platform, and may request additional information to review a case.</p></section>
+        <section><h3>6. Availability and changes</h3><p>Task availability, reward amounts, and features may change. Hustle254 does not guarantee a particular volume of tasks, earnings, or payout timing. We will make reasonable efforts to keep the service available and communicate material changes through the platform where appropriate.</p></section>
+        <section><h3>7. Questions and disputes</h3><p>Contact us with the account email and relevant task or transaction reference so we can review the issue. These terms should be read together with the Privacy Policy and Earning &amp; Reward Rules.</p></section>
+        <p className="info-review-note">Before public launch, confirm these terms against the registered operating entity, final payout timelines, and any applicable local legal requirements.</p>
+      </div>
+    </div>
+  )
+}
+
+function PrivacyPage() {
+  return (
+    <div className="page-wrap">
+      <PageHeader
+        eyebrow="Privacy policy"
+        title="Your information should have a clear purpose."
+        subtitle="This policy describes the account and activity information Hustle254 uses to operate the service, protect accounts, and review rewards."
+      />
+      <div className="info-document panel">
+        <p className="info-updated">Last updated: 15 October 2026</p>
+        <section><h3>Information you provide</h3><p>This may include your name, email address, phone number, account credentials (stored in protected form), profile details, task submissions and proof, support messages, and payment references or payout destination details you choose to provide.</p></section>
+        <section><h3>Information created when you use the service</h3><p>We process account activity, task and reward status, wallet transactions, and basic technical or security signals where enabled. Essential browser storage is used for session and display preferences. We do not ask you to send passwords or one-time verification codes to support.</p></section>
+        <section><h3>How information is used</h3><ul><li>Create and secure accounts.</li><li>Deliver tasks, record submissions, and review reward eligibility.</li><li>Maintain wallet and payout records and investigate disputes.</li><li>Detect abuse, protect the service, and meet applicable legal obligations.</li><li>Respond to support requests and improve platform reliability.</li></ul></section>
+        <section><h3>When information is shared</h3><p>Information is shared only as needed to operate the service—for example, with infrastructure and communications providers, with task posters to verify a relevant submission, or with authorities where legally required. We do not sell personal information.</p></section>
+        <section><h3>Security and retention</h3><p>We use safeguards intended to protect account and transaction information. No online system can promise absolute security. We retain information for as long as needed for the purposes above, including account support, fraud review, financial records, and legal requirements.</p></section>
+        <section><h3>Your choices and requests</h3><p>You may contact us to ask about your information, request correction, or raise a privacy concern. Some records may need to be retained to meet legal, security, or transaction obligations. We will review requests in line with applicable requirements.</p></section>
+        <section><h3>Contact</h3><p>For privacy questions, email <a href="mailto:hustleworld254@gmail.com">hustleworld254@gmail.com</a> or call/WhatsApp <a href="tel:+254736677630">+254 736 677 630</a>.</p></section>
+        <p className="info-review-note">Before public launch, confirm the operating entity, service providers, data-retention periods, and privacy-request process match actual operations and applicable law.</p>
+      </div>
+    </div>
+  )
+}
+
+function EarningRulesPage({ setCurrentPage }) {
+  return (
+    <div className="page-wrap">
+      <PageHeader
+        eyebrow="Earning & reward rules"
+        title="Know what counts before you start."
+        subtitle="Rewards are tied to clearly defined actions and review—not simply to opening an account. Check each task’s own instructions before participating."
+      />
+      <div className="trust-grid info-grid">
+        <section className="panel info-panel"><span className="tag">01 · Choose</span><h3>Check the offer first</h3><p>Review the task description, eligibility, requested proof, deadline, and displayed KSh reward. A task may close or reach its participant limit.</p></section>
+        <section className="panel info-panel"><span className="tag">02 · Complete</span><h3>Follow the instructions</h3><p>Complete the required action yourself and provide accurate proof through the method requested. Do not submit altered, recycled, or misleading evidence.</p></section>
+        <section className="panel info-panel"><span className="tag">03 · Review</span><h3>Allow time for verification</h3><p>Submissions may remain pending while they are reviewed. Only approved and credited rewards become part of the available wallet balance.</p></section>
+        <section className="panel info-panel"><span className="tag">04 · Request</span><h3>Use correct payout details</h3><p>When requesting a withdrawal, choose a supported method, provide accurate destination details, and allow time for review. Never share your password or verification code to receive a payout.</p></section>
+      </div>
+      <section className="panel info-panel info-callout">
+        <h3>Daily login streak bonus</h3>
+        <p>Eligible user and poster accounts receive one check-in per calendar day in East Africa Time. Seven consecutive daily check-ins qualify for the displayed $0.023 bonus (KSh 2.94). Repeated check-ins on the same day do not add days; missing a calendar day restarts the consecutive run. Check-ins and reward claims are recorded in the account history.</p>
+      </section>
+      <section className="panel info-panel">
+        <h3>Fair-play rules</h3>
+        <ul className="check-list compact">
+          <li>One genuine account per person; no duplicate or automated activity.</li>
+          <li>Do not manipulate task completion, referrals, proof, or reward systems.</li>
+          <li>Rewards depend on each task’s eligibility and verification requirements.</li>
+          <li>Suspicious or invalid activity may be held for review and can result in declined rewards or account restrictions.</li>
+        </ul>
+        <button type="button" className="btn btn-secondary" onClick={() => setCurrentPage('Tasks')}>Browse available tasks</button>
+      </section>
+    </div>
+  )
+}
+
+function LegalPage({ setCurrentPage }) {
   return (
     <div className="page-wrap">
       <PageHeader
         eyebrow="Legal & compliance"
-        title="Clear rules, transparent terms, and compliance-first operations."
-        subtitle="A legitimate money platform must protect users and the business with clear, published guidance and fair payout rules."
+        title="Policies in plain language."
+        subtitle="Review the terms, privacy information, and reward rules that explain how Hustle254 works."
       />
-
-      <div className="panel legal-panel">
-        <h3>Included essentials</h3>
-        <ul className="check-list compact">
-          {legalItems.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
+      <div className="trust-grid info-grid">
+        <section className="panel info-panel"><span className="tag">Using the platform</span><h3>Terms of use</h3><p>Account responsibilities, task submissions, wallet balances, payouts, and acceptable use.</p><button type="button" className="btn btn-secondary" onClick={() => setCurrentPage('Terms')}>Read the terms →</button></section>
+        <section className="panel info-panel"><span className="tag">Your information</span><h3>Privacy policy</h3><p>What information is used to run accounts, review activity, and protect the service.</p><button type="button" className="btn btn-secondary" onClick={() => setCurrentPage('Privacy')}>Read the privacy policy →</button></section>
+        <section className="panel info-panel"><span className="tag">Earning transparently</span><h3>Earning &amp; reward rules</h3><p>How tasks, verification, wallet credit, and daily streak bonuses work.</p><button type="button" className="btn btn-secondary" onClick={() => setCurrentPage('Earning rules')}>Read the reward rules →</button></section>
       </div>
     </div>
   )
