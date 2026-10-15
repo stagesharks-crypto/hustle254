@@ -48,6 +48,7 @@ const pool = new Pool({
 const mockUsers = [];
 const mockWallets = [];
 const mockUserStreaks = [];
+const mockUserStreakCheckIns = [];
 const mockStreakRewardClaims = [];
 const mockTaskPosts = [];
 const passwordResetTokens = new Map();
@@ -70,6 +71,7 @@ async function verifyDatabase() {
       'users',
       'wallets',
       'user_streaks',
+      'user_streak_check_ins',
       'streak_reward_claims',
       'wallet_transactions',
       'tasks',
@@ -406,6 +408,28 @@ function getCalendarDayDifference(previousDate, currentDate) {
     return Date.UTC(year, month - 1, day) / 86400000;
   };
   return toDayNumber(currentDate) - toDayNumber(previousDate);
+}
+
+function calculateStreakStatistics(checkInDates, today) {
+  const dates = [...new Set(checkInDates)].sort();
+  let consecutiveDays = 0;
+  let longestStreak = 0;
+  let previousDate = null;
+
+  for (const date of dates) {
+    consecutiveDays = previousDate && getCalendarDayDifference(previousDate, date) === 1
+      ? consecutiveDays + 1
+      : 1;
+    longestStreak = Math.max(longestStreak, consecutiveDays);
+    previousDate = date;
+  }
+
+  const activeConsecutiveDays = previousDate === today ? consecutiveDays : 0;
+  return {
+    currentDays: activeConsecutiveDays ? ((activeConsecutiveDays - 1) % 7) + 1 : 0,
+    longestStreak,
+    totalCheckIns: dates.length,
+  };
 }
 
 function getSecondsUntilNextNairobiMidnight(now = new Date()) {
@@ -1584,57 +1608,67 @@ app.post('/api/user/streak/check-in', requireAuth, async (req, res) => {
          ON CONFLICT (user_id) DO NOTHING`,
         [req.user.sub]
       );
-      const streakResult = await connection.query(
-        `SELECT current_streak, TO_CHAR(last_login_date, 'YYYY-MM-DD') AS last_login_date
+      await connection.query(
+        `SELECT user_id
          FROM user_streaks
          WHERE user_id = $1
          FOR UPDATE`,
         [req.user.sub]
       );
-      const streak = streakResult.rows[0];
+
+      const todayCheckIn = await connection.query(
+        `INSERT INTO user_streak_check_ins (user_id, check_in_date)
+         VALUES ($1, $2)
+         ON CONFLICT (user_id, check_in_date) DO NOTHING
+         RETURNING check_in_date`,
+        [req.user.sub, today]
+      );
+      const checkInResult = await connection.query(
+        `SELECT TO_CHAR(check_in_date, 'YYYY-MM-DD') AS check_in_date
+         FROM user_streak_check_ins
+         WHERE user_id = $1 AND check_in_date <= $2
+         ORDER BY check_in_date`,
+        [req.user.sub, today]
+      );
+      const streakStatistics = calculateStreakStatistics(
+        checkInResult.rows.map((row) => row.check_in_date),
+        today
+      );
+      currentStreak = streakStatistics.currentDays;
+
       const existingClaim = await connection.query(
         'SELECT id FROM streak_reward_claims WHERE user_id = $1 AND streak_day = $2',
         [req.user.sub, today]
       );
       rewardEarnedToday = existingClaim.rowCount > 0;
-      currentStreak = Number(streak.current_streak);
 
-      if (streak.last_login_date !== today) {
-        const daysSinceLogin = streak.last_login_date
-          ? getCalendarDayDifference(String(streak.last_login_date).slice(0, 10), today)
-          : 0;
-        currentStreak = daysSinceLogin === 1
-          ? (currentStreak >= 7 ? 1 : currentStreak + 1)
-          : 1;
-
-        if (currentStreak === 7) {
-          const claim = await connection.query(
-            `INSERT INTO streak_reward_claims (user_id, streak_day, reward_usd, amount_kes)
-             VALUES ($1, $2, $3, $4)
-             ON CONFLICT (user_id, streak_day) DO NOTHING
-             RETURNING id`,
-            [req.user.sub, today, STREAK_REWARD_USD, STREAK_REWARD_KES]
-          );
-          if (claim.rowCount) {
-            const walletUpdate = await connection.query(
-              `UPDATE wallets
-               SET balance_kes = balance_kes + $2, updated_at = NOW()
-               WHERE user_id = $1
-               RETURNING balance_kes`,
-              [req.user.sub, STREAK_REWARD_KES]
-            );
-            if (!walletUpdate.rowCount) throw new Error('Wallet record is missing for the streak reward.');
-            rewardEarnedToday = true;
-          }
-        }
-
-        await connection.query(
-          `UPDATE user_streaks
-           SET current_streak = $2, last_login_date = $3, updated_at = NOW()
-           WHERE user_id = $1`,
-          [req.user.sub, currentStreak, today]
+      if (todayCheckIn.rowCount && currentStreak === 7) {
+        const claim = await connection.query(
+          `INSERT INTO streak_reward_claims (user_id, streak_day, reward_usd, amount_kes)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (user_id, streak_day) DO NOTHING
+           RETURNING id`,
+          [req.user.sub, today, STREAK_REWARD_USD, STREAK_REWARD_KES]
         );
+        if (claim.rowCount) {
+          const walletUpdate = await connection.query(
+            `UPDATE wallets
+             SET balance_kes = balance_kes + $2, updated_at = NOW()
+             WHERE user_id = $1
+             RETURNING balance_kes`,
+            [req.user.sub, STREAK_REWARD_KES]
+          );
+          if (!walletUpdate.rowCount) throw new Error('Wallet record is missing for the streak reward.');
+          rewardEarnedToday = true;
+        }
       }
+
+      await connection.query(
+        `UPDATE user_streaks
+         SET current_streak = $2, last_login_date = $3, updated_at = NOW()
+         WHERE user_id = $1`,
+        [req.user.sub, currentStreak, today]
+      );
 
       const [rewards, totals] = await Promise.all([
         connection.query(
@@ -1663,6 +1697,8 @@ app.post('/api/user/streak/check-in', requireAuth, async (req, res) => {
           rewardUsd: STREAK_REWARD_USD,
           rewardKes: STREAK_REWARD_KES,
           timezone: STREAK_TIME_ZONE,
+          longestStreak: streakStatistics.longestStreak,
+          totalCheckIns: streakStatistics.totalCheckIns,
           totalRewards: totals.rows[0].reward_count,
           totalRewardsKes: totals.rows[0].total_rewards_kes,
           rewards: rewards.rows,
@@ -1681,30 +1717,36 @@ app.post('/api/user/streak/check-in', requireAuth, async (req, res) => {
     streak = { user_id: req.user.sub, current_streak: 0, last_login_date: null };
     mockUserStreaks.push(streak);
   }
-  if (streak.last_login_date !== today) {
-    const daysSinceLogin = streak.last_login_date
-      ? getCalendarDayDifference(streak.last_login_date, today)
-      : 0;
-    currentStreak = daysSinceLogin === 1
-      ? (Number(streak.current_streak) >= 7 ? 1 : Number(streak.current_streak) + 1)
-      : 1;
-    if (currentStreak === 7) {
-      const wallet = getMockWalletByUserId(req.user.sub);
-      if (!wallet) return res.status(409).json({ message: 'Your wallet record is unavailable. Contact support.' });
-      wallet.balance_kes = Number(wallet.balance_kes) + STREAK_REWARD_KES;
-      mockStreakRewardClaims.unshift({
-        user_id: req.user.sub,
-        streak_day: today,
-        reward_usd: STREAK_REWARD_USD,
-        amount_kes: STREAK_REWARD_KES,
-        created_at: new Date().toISOString(),
-      });
-      rewardEarnedToday = true;
-    }
-    streak.current_streak = currentStreak;
-    streak.last_login_date = today;
+  let todayCheckIn = mockUserStreakCheckIns.find(
+    (checkIn) => String(checkIn.user_id) === String(req.user.sub) && checkIn.check_in_date === today
+  );
+  if (!todayCheckIn) {
+    todayCheckIn = { user_id: req.user.sub, check_in_date: today };
+    mockUserStreakCheckIns.push(todayCheckIn);
+  }
+  const userCheckInDates = mockUserStreakCheckIns
+    .filter((checkIn) => String(checkIn.user_id) === String(req.user.sub))
+    .map((checkIn) => checkIn.check_in_date);
+  const streakStatistics = calculateStreakStatistics(userCheckInDates, today);
+  currentStreak = streakStatistics.currentDays;
+  streak.current_streak = currentStreak;
+  streak.last_login_date = today;
+
+  if (currentStreak === 7 && !mockStreakRewardClaims.some(
+    (claim) => String(claim.user_id) === String(req.user.sub) && claim.streak_day === today
+  )) {
+    const wallet = getMockWalletByUserId(req.user.sub);
+    if (!wallet) return res.status(409).json({ message: 'Your wallet record is unavailable. Contact support.' });
+    wallet.balance_kes = Number(wallet.balance_kes) + STREAK_REWARD_KES;
+    mockStreakRewardClaims.unshift({
+      user_id: req.user.sub,
+      streak_day: today,
+      reward_usd: STREAK_REWARD_USD,
+      amount_kes: STREAK_REWARD_KES,
+      created_at: new Date().toISOString(),
+    });
+    rewardEarnedToday = true;
   } else {
-    currentStreak = Number(streak.current_streak);
     rewardEarnedToday = mockStreakRewardClaims.some(
       (claim) => String(claim.user_id) === String(req.user.sub) && claim.streak_day === today
     );
@@ -1720,6 +1762,8 @@ app.post('/api/user/streak/check-in', requireAuth, async (req, res) => {
       rewardUsd: STREAK_REWARD_USD,
       rewardKes: STREAK_REWARD_KES,
       timezone: STREAK_TIME_ZONE,
+      longestStreak: streakStatistics.longestStreak,
+      totalCheckIns: streakStatistics.totalCheckIns,
       totalRewards: userRewards.length,
       totalRewardsKes: userRewards.reduce((sum, claim) => sum + Number(claim.amount_kes), 0),
       rewards: userRewards.slice(0, 20),
