@@ -97,10 +97,11 @@ async function verifyDatabase() {
       throw new Error(`Database schema is incomplete (missing: ${missingTables.join(', ')}). Apply db/schema.sql to a new database, or apply the required migrations to an existing database before starting the API.`);
     }
     const requiredColumns = {
-      users: ['email_verified_at', 'email_verification_code_hash', 'email_verification_expires_at', 'email_verification_requested_at', 'email_verification_attempts', 'external_user_id'],
+      users: ['email_verified_at', 'email_verification_code_hash', 'email_verification_expires_at', 'email_verification_requested_at', 'email_verification_attempts', 'external_user_id', 'referred_by_user_id'],
       task_posts: ['poster_user_id'],
       task_submissions: ['task_post_id'],
       wallet_transactions: ['transaction_type', 'amount_kes', 'status', 'transaction_reference', 'destination', 'fee_amount_kes'],
+      referrals: ['reward_type', 'reward_kes', 'qualifying_event_id', 'qualified_at', 'credited_at'],
     };
     const columnResult = await pool.query(
       `SELECT table_name, column_name FROM information_schema.columns
@@ -349,6 +350,189 @@ function getAuthToken(req) {
   const header = req.headers.authorization || '';
   if (!header.startsWith('Bearer ')) return null;
   return header.slice(7);
+}
+
+function generateReferralCode() {
+  return `H${randomBytes(6).toString('hex').toUpperCase()}`;
+}
+
+function normalizePhoneForComparison(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (digits.startsWith('254')) return digits.slice(3);
+  if (digits.startsWith('0')) return digits.slice(1);
+  return digits;
+}
+
+function hasMatchingPhone(left, right) {
+  const normalizedLeft = normalizePhoneForComparison(left);
+  const normalizedRight = normalizePhoneForComparison(right);
+  return Boolean(normalizedLeft && normalizedRight && normalizedLeft === normalizedRight);
+}
+
+async function createVerifiedReferral(connection, user) {
+  if (!user.referred_by_user_id || !['user', 'poster'].includes(user.role)) return;
+
+  await connection.query(
+    `INSERT INTO referrals (referrer_id, referred_user_id, reward_type, reward_kes)
+     SELECT referrer.id, referred.id,
+            CASE referred.role WHEN 'poster' THEN 'poster' ELSE 'tasker' END,
+            CASE referred.role WHEN 'poster' THEN 30 ELSE 5 END
+     FROM users AS referred
+     JOIN users AS referrer ON referrer.id = referred.referred_by_user_id
+     WHERE referred.id = $1
+       AND referred.id <> referrer.id
+       AND referrer.role IN ('user', 'poster')
+       AND referrer.status = 'active'
+       AND referrer.email_verified_at IS NOT NULL
+       AND LOWER(referrer.email) <> LOWER(referred.email)
+       AND (referrer.phone IS NULL OR referred.phone IS NULL OR referrer.phone <> referred.phone)
+     ON CONFLICT DO NOTHING`,
+    [user.id]
+  );
+}
+
+async function creditReferralReward(connection, referredUserId, rewardType) {
+  const referralResult = await connection.query(
+    `SELECT referrals.id, referrals.referrer_id, referrals.referred_user_id,
+            referrals.reward_kes, referrals.created_at, referred.role
+     FROM referrals
+     JOIN users AS referred ON referred.id = referrals.referred_user_id
+     WHERE referrals.referred_user_id = $1
+       AND referrals.reward_type = $2
+       AND referrals.status = 'pending'
+     FOR UPDATE OF referrals`,
+    [referredUserId, rewardType]
+  );
+  const referral = referralResult.rows[0];
+  if (!referral) return false;
+
+  let eventId;
+  if (rewardType === 'tasker' && referral.role === 'user') {
+    const submissionResult = await connection.query(
+      `SELECT id FROM task_submissions
+       WHERE user_id = $1 AND status = 'approved' AND created_at >= $2
+       ORDER BY reviewed_at ASC NULLS LAST, created_at ASC
+       LIMIT 1`,
+      [referredUserId, referral.created_at]
+    );
+    eventId = submissionResult.rows[0]?.id;
+  } else if (rewardType === 'poster' && referral.role === 'poster') {
+    const taskPostResult = await connection.query(
+      `SELECT id, total_budget_kes, created_at
+       FROM task_posts
+       WHERE poster_user_id = $1 AND status = 'approved' AND created_at >= $2
+       ORDER BY created_at ASC, id ASC
+       LIMIT 1`,
+      [referredUserId, referral.created_at]
+    );
+    const firstApprovedPost = taskPostResult.rows[0];
+    if (firstApprovedPost && Number(firstApprovedPost.total_budget_kes) > 0) {
+      const depositResult = await connection.query(
+        `SELECT COALESCE(SUM(amount_kes), 0) AS verified_deposits_kes
+         FROM wallet_transactions
+         WHERE user_id = $1 AND transaction_type = 'deposit' AND status = 'approved'`,
+        [referredUserId]
+      );
+      if (Number(depositResult.rows[0].verified_deposits_kes) >= Number(firstApprovedPost.total_budget_kes)) {
+        eventId = firstApprovedPost.id;
+      }
+    }
+  }
+  if (!eventId) return false;
+
+  const walletResult = await connection.query(
+    'SELECT id FROM wallets WHERE user_id = $1 FOR UPDATE',
+    [referral.referrer_id]
+  );
+  const wallet = walletResult.rows[0];
+  if (!wallet) throw new Error('Referrer wallet is missing; the referral reward cannot be credited.');
+
+  const amountKes = Number(referral.reward_kes);
+  if (!Number.isFinite(amountKes) || amountKes <= 0) {
+    throw new Error('Referral reward amount is invalid; the referral cannot be credited.');
+  }
+  const ledgerResult = await connection.query(
+    `INSERT INTO wallet_ledger_entries
+      (wallet_id, user_id, entry_type, amount_kes, source_type, source_id, description)
+     VALUES ($1, $2, 'referral_reward', $3, 'referral_reward', $4, $5)
+     ON CONFLICT (source_type, source_id) DO NOTHING
+     RETURNING id`,
+    [
+      wallet.id,
+      referral.referrer_id,
+      amountKes,
+      referral.id,
+      `Verified ${rewardType} referral reward`,
+    ]
+  );
+  if (!ledgerResult.rowCount) {
+    throw new Error('Referral reward ledger entry already exists for an unpaid referral.');
+  }
+
+  await connection.query(
+    'UPDATE wallets SET balance_kes = balance_kes + $2, updated_at = NOW() WHERE id = $1',
+    [wallet.id, amountKes]
+  );
+  await connection.query(
+    `UPDATE referrals
+     SET status = 'paid', commission_kes = reward_kes, qualifying_event_id = $2,
+         qualified_at = NOW(), credited_at = NOW()
+     WHERE id = $1 AND status = 'pending'`,
+    [referral.id, String(eventId)]
+  );
+  return true;
+}
+
+async function creditMockReferralReward(referredUserId, rewardType) {
+  const referral = mockReferrals.find((item) => (
+    String(item.referred_user_id) === String(referredUserId)
+    && item.reward_type === rewardType
+    && item.status === 'pending'
+  ));
+  const referredUser = mockUsers.find((item) => String(item.id) === String(referredUserId));
+  if (!referral || !referredUser) return false;
+
+  let eventId;
+  if (rewardType === 'tasker' && referredUser.role === 'user') {
+    eventId = mockSubmissions.find((item) => (
+      String(item.user_id) === String(referredUserId) && item.status === 'approved'
+    ))?.id;
+  } else if (rewardType === 'poster' && referredUser.role === 'poster') {
+    const firstApprovedPost = mockTaskPosts
+      .filter((item) => String(item.poster_user_id) === String(referredUserId) && item.status === 'approved')
+      .sort((left, right) => new Date(left.created_at) - new Date(right.created_at))[0];
+    const verifiedDepositsKes = mockWalletTransactions
+      .filter((item) => String(item.user_id) === String(referredUserId)
+        && item.transaction_type === 'deposit' && item.status === 'approved')
+      .reduce((total, item) => total + Number(item.amount_kes || 0), 0);
+    if (firstApprovedPost && verifiedDepositsKes >= Number(firstApprovedPost.total_budget_kes)) {
+      eventId = firstApprovedPost.id;
+    }
+  }
+  if (!eventId) return false;
+
+  const wallet = getMockWalletByUserId(referral.referrer_id);
+  if (!wallet) throw new Error('Referrer wallet is missing; the referral reward cannot be credited.');
+  const amountKes = Number(referral.reward_kes);
+  if (!Number.isFinite(amountKes) || amountKes <= 0) {
+    throw new Error('Referral reward amount is invalid; the referral cannot be credited.');
+  }
+  wallet.balance_kes = Number(wallet.balance_kes) + amountKes;
+  referral.status = 'paid';
+  referral.commission_kes = amountKes;
+  referral.qualifying_event_id = String(eventId);
+  referral.qualified_at = new Date().toISOString();
+  referral.credited_at = referral.qualified_at;
+  mockWalletTransactions.unshift({
+    id: `referral-reward-${referral.id}`,
+    user_id: referral.referrer_id,
+    transaction_type: 'referral_reward',
+    amount_kes: amountKes,
+    status: 'approved',
+    description: `Verified ${rewardType} referral reward`,
+    created_at: referral.credited_at,
+  });
+  return true;
 }
 
 async function requireAuth(req, res, next) {
@@ -693,7 +877,7 @@ app.post('/api/admin/register', async (req, res) => {
     }
 
     const passwordHash = await bcrypt.hash(ADMIN_ACCESS_PASSWORD, 10);
-    const referralCode = `H${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    const referralCode = generateReferralCode();
     const userResult = await connection.query(
       `INSERT INTO users (full_name, email, phone, password_hash, referral_code, role)
        VALUES ($1, $2, $3, $4, $5, 'admin') RETURNING *`,
@@ -750,9 +934,13 @@ function isValidEmailAddress(value) {
 async function registerUser(req, res, role = 'user') {
   const { fullName, phone, password, referralCode } = req.body || {};
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  const submittedReferralCode = typeof referralCode === 'string' ? referralCode.trim().toUpperCase() : '';
 
   if (!fullName || !email || !phone || !password) {
     return res.status(400).json({ message: 'Full name, email, phone, and password are required.' });
+  }
+  if (submittedReferralCode.length > 40) {
+    return res.status(400).json({ message: 'Referral code is not valid.' });
   }
   if (!isValidEmailAddress(email)) {
     return res.status(400).json({
@@ -766,7 +954,7 @@ async function registerUser(req, res, role = 'user') {
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
-  const nextReferralCode = referralCode || `H${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+  const nextReferralCode = generateReferralCode();
   let nextUser;
   let wallet;
 
@@ -774,10 +962,33 @@ async function registerUser(req, res, role = 'user') {
     const connection = await pool.connect();
     try {
       await connection.query('BEGIN');
+      let referrerId = null;
+      if (submittedReferralCode) {
+        const referrerResult = await connection.query(
+          `SELECT id, role, status, email, phone, email_verified_at
+           FROM users
+           WHERE UPPER(referral_code) = $1
+           FOR SHARE`,
+          [submittedReferralCode]
+        );
+        const referrer = referrerResult.rows[0];
+        if (
+          !referrer
+          || !['user', 'poster'].includes(referrer.role)
+          || referrer.status !== 'active'
+          || !referrer.email_verified_at
+          || referrer.email.toLowerCase() === email
+          || hasMatchingPhone(referrer.phone, phone)
+        ) {
+          await connection.query('ROLLBACK');
+          return res.status(400).json({ message: 'Referral code is invalid or cannot be used for this account.' });
+        }
+        referrerId = referrer.id;
+      }
       const userResult = await connection.query(
-        `INSERT INTO users (full_name, email, phone, password_hash, referral_code, role)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-        [fullName.trim(), email, phone.trim(), passwordHash, nextReferralCode, role]
+        `INSERT INTO users (full_name, email, phone, password_hash, referral_code, role, referred_by_user_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+        [fullName.trim(), email, phone.trim(), passwordHash, nextReferralCode, role, referrerId]
       );
       [nextUser] = userResult.rows;
       const walletResult = await connection.query(
@@ -796,6 +1007,19 @@ async function registerUser(req, res, role = 'user') {
       connection.release();
     }
   } else {
+    const referrer = submittedReferralCode
+      ? mockUsers.find((user) => String(user.referral_code).toUpperCase() === submittedReferralCode)
+      : null;
+    if (submittedReferralCode && (
+      !referrer
+      || !['user', 'poster'].includes(referrer.role)
+      || referrer.status !== 'active'
+      || !referrer.email_verified_at
+      || referrer.email.toLowerCase() === email
+      || hasMatchingPhone(referrer.phone, phone)
+    )) {
+      return res.status(400).json({ message: 'Referral code is invalid or cannot be used for this account.' });
+    }
     nextUser = {
       id: Date.now(),
       full_name: fullName.trim(),
@@ -804,6 +1028,7 @@ async function registerUser(req, res, role = 'user') {
       password_hash: passwordHash,
       role,
       referral_code: nextReferralCode,
+      referred_by_user_id: referrer?.id || null,
       status: 'active',
       is_verified: false,
       created_at: new Date().toISOString(),
@@ -876,24 +1101,36 @@ app.post('/api/auth/verify-email', async (req, res) => {
 
   let verifiedUser = user;
   if (databaseOnline) {
-    const result = await pool.query(
-      `UPDATE users
-       SET email_verified_at = NOW(),
-           email_verification_code_hash = NULL,
-           email_verification_expires_at = NULL,
-           email_verification_requested_at = NULL,
-           email_verification_attempts = 0,
-           updated_at = NOW()
-       WHERE id = $1
-         AND email_verification_code_hash = $2
-         AND email_verification_expires_at > NOW()
-         AND email_verification_attempts < $3
-       RETURNING *`,
-      [user.id, user.email_verification_code_hash, EMAIL_VERIFICATION_MAX_ATTEMPTS]
-    );
-    [verifiedUser] = result.rows;
-    if (!verifiedUser) {
-      return res.status(400).json({ message: 'That code is invalid or expired. Request a new code and try again.' });
+    const connection = await pool.connect();
+    try {
+      await connection.query('BEGIN');
+      const result = await connection.query(
+        `UPDATE users
+         SET email_verified_at = NOW(),
+             email_verification_code_hash = NULL,
+             email_verification_expires_at = NULL,
+             email_verification_requested_at = NULL,
+             email_verification_attempts = 0,
+             updated_at = NOW()
+         WHERE id = $1
+           AND email_verification_code_hash = $2
+           AND email_verification_expires_at > NOW()
+           AND email_verification_attempts < $3
+         RETURNING *`,
+        [user.id, user.email_verification_code_hash, EMAIL_VERIFICATION_MAX_ATTEMPTS]
+      );
+      [verifiedUser] = result.rows;
+      if (!verifiedUser) {
+        await connection.query('ROLLBACK');
+        return res.status(400).json({ message: 'That code is invalid or expired. Request a new code and try again.' });
+      }
+      await createVerifiedReferral(connection, verifiedUser);
+      await connection.query('COMMIT');
+    } catch (error) {
+      await connection.query('ROLLBACK');
+      throw error;
+    } finally {
+      connection.release();
     }
   } else {
     verifiedUser.email_verified_at = new Date().toISOString();
@@ -901,6 +1138,26 @@ app.post('/api/auth/verify-email', async (req, res) => {
     verifiedUser.email_verification_expires_at = null;
     verifiedUser.email_verification_requested_at = null;
     verifiedUser.email_verification_attempts = 0;
+    const referrer = mockUsers.find((item) => String(item.id) === String(verifiedUser.referred_by_user_id));
+    if (
+      referrer
+      && ['user', 'poster'].includes(referrer.role)
+      && referrer.status === 'active'
+      && referrer.email_verified_at
+      && !mockReferrals.some((item) => String(item.referred_user_id) === String(verifiedUser.id))
+    ) {
+      mockReferrals.push({
+        id: `referral-${verifiedUser.id}`,
+        referrer_id: referrer.id,
+        referred_user_id: verifiedUser.id,
+        full_name: verifiedUser.full_name,
+        reward_type: verifiedUser.role === 'poster' ? 'poster' : 'tasker',
+        reward_kes: verifiedUser.role === 'poster' ? 30 : 5,
+        commission_kes: 0,
+        status: 'pending',
+        created_at: verifiedUser.email_verified_at,
+      });
+    }
   }
 
   return res.json({
@@ -1251,21 +1508,40 @@ app.patch('/api/admin/task-posts/:id/status', requireAuth, requireAdmin, async (
 
   let taskPost;
   if (databaseOnline) {
-    const result = await pool.query(
-      `UPDATE task_posts SET status = $2, reviewed_at = NOW()
-       WHERE id = $1 AND status = 'pending_review' RETURNING *`,
-      [req.params.id, status]
-    );
-    [taskPost] = result.rows;
+    const connection = await pool.connect();
+    try {
+      await connection.query('BEGIN');
+      const result = await connection.query(
+        `UPDATE task_posts SET status = $2, reviewed_at = NOW()
+         WHERE id = $1 AND status = 'pending_review' RETURNING *`,
+        [req.params.id, status]
+      );
+      [taskPost] = result.rows;
+      if (!taskPost) {
+        await connection.query('ROLLBACK');
+        return res.status(404).json({ message: 'Pending task post not found.' });
+      }
+      if (status === 'approved' && taskPost.poster_user_id) {
+        await creditReferralReward(connection, taskPost.poster_user_id, 'poster');
+      }
+      await connection.query('COMMIT');
+    } catch (error) {
+      await connection.query('ROLLBACK');
+      throw error;
+    } finally {
+      connection.release();
+    }
   } else {
     taskPost = mockTaskPosts.find((post) => post.id === req.params.id && post.status === 'pending_review');
     if (taskPost) {
       taskPost.status = status;
       taskPost.reviewed_at = new Date().toISOString();
+      if (status === 'approved' && taskPost.poster_user_id) {
+        await creditMockReferralReward(taskPost.poster_user_id, 'poster');
+      }
     }
   }
 
-  if (!taskPost) return res.status(404).json({ message: 'Pending task post not found.' });
   return res.json({ message: `Task post ${status}.`, taskPost });
 });
 
@@ -1884,8 +2160,9 @@ app.get('/api/user/referrals', requireAuth, async (req, res) => {
     const [user, referrals] = await Promise.all([
       findUserById(req.user.sub),
       pool.query(
-        `SELECT referrals.id, users.full_name, referrals.commission_kes,
-                referrals.status, referrals.created_at
+        `SELECT referrals.id, users.full_name, referrals.reward_type,
+                referrals.reward_kes, referrals.commission_kes,
+                referrals.status, referrals.created_at, referrals.qualified_at, referrals.credited_at
          FROM referrals
          JOIN users ON users.id = referrals.referred_user_id
          WHERE referrals.referrer_id = $1
@@ -1894,7 +2171,16 @@ app.get('/api/user/referrals', requireAuth, async (req, res) => {
       ),
     ]);
     if (!user) return res.status(404).json({ message: 'User account not found.' });
-    return res.json({ referralCode: user.referral_code, referrals: referrals.rows });
+    return res.json({
+      referralCode: user.referral_code,
+      referrals: referrals.rows,
+      summary: {
+        paidKes: referrals.rows.reduce((sum, item) => sum + Number(item.commission_kes || 0), 0),
+        pendingKes: referrals.rows
+          .filter((item) => item.status === 'pending')
+          .reduce((sum, item) => sum + Number(item.reward_kes || 0), 0),
+      },
+    });
   }
 
   const user = await findUserById(req.user.sub);
@@ -1906,10 +2192,22 @@ app.get('/api/user/referrals', requireAuth, async (req, res) => {
       .map((item) => ({
         id: item.id,
         full_name: item.full_name || 'Referred account',
+        reward_type: item.reward_type,
+        reward_kes: item.reward_kes,
         commission_kes: item.commission_kes,
         status: item.status,
         created_at: item.created_at,
+        qualified_at: item.qualified_at,
+        credited_at: item.credited_at,
       })),
+    summary: {
+      paidKes: mockReferrals
+        .filter((item) => String(item.referrer_id) === String(req.user.sub))
+        .reduce((sum, item) => sum + Number(item.commission_kes || 0), 0),
+      pendingKes: mockReferrals
+        .filter((item) => String(item.referrer_id) === String(req.user.sub) && item.status === 'pending')
+        .reduce((sum, item) => sum + Number(item.reward_kes || 0), 0),
+    },
   });
 });
 
@@ -2147,6 +2445,9 @@ app.patch('/api/admin/tasks/:id/status', requireAuth, requireAdmin, async (req, 
         [req.params.id, status]
       );
       submission = updated.rows[0];
+      if (status === 'approved') {
+        await creditReferralReward(connection, submission.user_id, 'tasker');
+      }
       await connection.query('COMMIT');
     } catch (error) {
       await connection.query('ROLLBACK');
@@ -2188,6 +2489,7 @@ app.patch('/api/admin/tasks/:id/status', requireAuth, requireAdmin, async (req, 
       description: 'Approved task reward',
       created_at: new Date().toISOString(),
     });
+    await creditMockReferralReward(submission.user_id, 'tasker');
   }
   return res.json({
     message: status === 'approved'
@@ -2332,6 +2634,9 @@ app.patch('/api/admin/wallet-transactions/:id/status', requireAuth, requireAdmin
         [req.params.id, status, req.user.sub]
       );
       [transaction] = updated.rows;
+      if (transaction.transaction_type === 'deposit' && status === 'approved') {
+        await creditReferralReward(connection, transaction.user_id, 'poster');
+      }
       await connection.query('COMMIT');
     } catch (error) {
       await connection.query('ROLLBACK');
@@ -2370,6 +2675,9 @@ app.patch('/api/admin/wallet-transactions/:id/status', requireAuth, requireAdmin
   transaction.status = status;
   transaction.reviewed_at = new Date().toISOString();
   transaction.reviewer_id = req.user.sub;
+  if (transaction.transaction_type === 'deposit' && status === 'approved') {
+    await creditMockReferralReward(transaction.user_id, 'poster');
+  }
   return res.json({
     transaction,
     message: transaction.transaction_type === 'deposit' && status === 'approved'
