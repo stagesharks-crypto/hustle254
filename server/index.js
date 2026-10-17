@@ -1153,30 +1153,28 @@ app.post('/api/task-posts', requireAuth, requireRole('poster'), async (req, res)
 
 app.get('/api/poster/dashboard', requireAuth, requireRole('poster'), async (req, res) => {
   if (databaseOnline) {
-    const [user, posts] = await Promise.all([
-      findUserById(req.user.sub),
-      pool.query(
-        `SELECT task_posts.*,
-                COALESCE(submission_counts.submissions_count, 0)::int AS submissions_count,
-                COALESCE(submission_counts.pending_count, 0)::int AS pending_count,
-                COALESCE(submission_counts.approved_count, 0)::int AS approved_count,
-                COALESCE(submission_counts.rejected_count, 0)::int AS rejected_count
-         FROM task_posts
-         LEFT JOIN LATERAL (
-           SELECT COUNT(task_submissions.id) AS submissions_count,
-                  COUNT(task_submissions.id) FILTER (WHERE task_submissions.status = 'pending_review') AS pending_count,
-                  COUNT(task_submissions.id) FILTER (WHERE task_submissions.status = 'approved') AS approved_count,
-                  COUNT(task_submissions.id) FILTER (WHERE task_submissions.status = 'rejected') AS rejected_count
-           FROM task_submissions
-           WHERE task_submissions.task_post_id = task_posts.id
-         ) AS submission_counts ON TRUE
-         WHERE task_posts.poster_user_id = $1
-            OR (task_posts.poster_user_id IS NULL AND LOWER(task_posts.poster_email) = LOWER($2))
-         ORDER BY task_posts.created_at DESC`,
-        [req.user.sub, user?.email || '']
-      ),
-    ]);
+    const user = await findUserById(req.user.sub);
     if (!user) return res.status(404).json({ message: 'Poster account not found.' });
+    const posts = await pool.query(
+      `SELECT task_posts.*,
+              COALESCE(submission_counts.submissions_count, 0)::int AS submissions_count,
+              COALESCE(submission_counts.pending_count, 0)::int AS pending_count,
+              COALESCE(submission_counts.approved_count, 0)::int AS approved_count,
+              COALESCE(submission_counts.rejected_count, 0)::int AS rejected_count
+       FROM task_posts
+       LEFT JOIN LATERAL (
+         SELECT COUNT(task_submissions.id) AS submissions_count,
+                COUNT(task_submissions.id) FILTER (WHERE task_submissions.status = 'pending_review') AS pending_count,
+                COUNT(task_submissions.id) FILTER (WHERE task_submissions.status = 'approved') AS approved_count,
+                COUNT(task_submissions.id) FILTER (WHERE task_submissions.status = 'rejected') AS rejected_count
+         FROM task_submissions
+         WHERE task_submissions.task_post_id = task_posts.id
+       ) AS submission_counts ON TRUE
+       WHERE task_posts.poster_user_id = $1
+          OR (task_posts.poster_user_id IS NULL AND LOWER(task_posts.poster_email) = LOWER($2))
+       ORDER BY task_posts.created_at DESC`,
+      [req.user.sub, user.email || '']
+    );
     return res.json({
       account: sanitizeUser(user),
       billing: { status: 'not_configured', message: 'Deposits and poster balances will be available after payment setup in Step 5.' },
