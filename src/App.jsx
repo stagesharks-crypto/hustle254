@@ -164,7 +164,7 @@ const accountNavigation = [
   { label: 'Dashboard', icon: 'D' },
   { label: 'Wallet', icon: 'W' },
   { label: 'Streaks', icon: '7' },
-  { label: 'Referral', icon: 'R' },
+  { label: 'Referral', icon: 'R', title: 'Refer & Earn' },
 ]
 
 const memberPages = new Set(['Tasks', 'Wallet', 'Streaks', 'Referral', 'Dashboard', 'Admin', 'Poster', 'Post a task'])
@@ -178,7 +178,7 @@ const howSteps = [
 
 const featureCards = [
   { title: 'Survey & offer wall', text: 'High-quality daily tasks with clear payouts and category filtering.', tag: 'Fast earnings' },
-  { title: 'Referral machine', text: 'Tier-based commissions and referral dashboards for stable user growth.', tag: 'Growth loop' },
+  { title: 'Referral & affiliation', text: 'Earn KSh 5 for an admin-verified tasker referral or KSh 30 for an approved, funded poster referral.', tag: 'Growth loop' },
   { title: 'Streak boosters', text: 'Daily rewards, milestones, and seasonal bonuses to improve retention.', tag: 'Retention' },
   { title: 'Wallet transparency', text: 'Track pending, approved, rejected, and withdrawn balances in real time.', tag: 'Trust' },
   { title: 'Fraud shield', text: 'Camera-only proof capture, IP/device checks, and a consistent review process.', tag: 'Security' },
@@ -663,6 +663,7 @@ function App() {
               { label: 'Poster', icon: 'P', title: 'Poster account' },
               { label: 'Wallet', icon: 'W', title: 'Wallet' },
               { label: 'Streaks', icon: '7', title: 'Daily streak' },
+              { label: 'Referral', icon: 'R', title: 'Refer & Earn' },
               { label: 'Post a task', icon: '+', title: 'Post a task' },
             ].map((item) => (
               <button
@@ -689,7 +690,7 @@ function App() {
                 className={currentPage === item.label ? 'side-nav-link active' : 'side-nav-link'}
               >
                 <span className="side-nav-icon" aria-hidden="true">{item.icon}</span>
-                {item.label}
+                {item.title || item.label}
               </button>
             ))}
           </>}
@@ -1781,6 +1782,7 @@ function ReferralPage({ session }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     apiRequest('/user/referrals', { token: session.token })
@@ -1789,36 +1791,88 @@ function ReferralPage({ session }) {
       .finally(() => setLoading(false))
   }, [session.token])
 
+  const referralLink = data?.referralCode
+    ? `${window.location.origin}/?ref=${encodeURIComponent(data.referralCode)}`
+    : ''
+
+  async function copyReferralLink() {
+    try {
+      await navigator.clipboard.writeText(referralLink)
+      setCopied(true)
+    } catch (copyError) {
+      setError(`Could not copy the referral link. Copy it from the field instead. ${copyError.message}`)
+    }
+  }
+
   return (
     <div className="page-wrap">
       <PageHeader
-        eyebrow="Referral system"
-        title="Review your referral records."
-        subtitle="Referral accounts and commissions appear here only after they are recorded for your account."
+        eyebrow="Referral & affiliation"
+        title="Invite taskers and posters. Earn when they succeed."
+        subtitle="Share your link or code. Referral attribution is locked when a new account registers and is recorded after their email is verified."
       />
+
+      {error && <div className="form-error" role="alert">{error}</div>}
+      <div className="stats-grid referral-earnings-grid">
+        <div className="stat-card panel">
+          <label>Earned and credited</label>
+          <strong>{data ? formatKes(data.summary?.paidKes) : '—'}</strong>
+        </div>
+        <div className="stat-card panel">
+          <label>Possible rewards pending</label>
+          <strong>{data ? formatKes(data.summary?.pendingKes) : '—'}</strong>
+        </div>
+        <div className="stat-card panel">
+          <label>Verified referrals</label>
+          <strong>{data?.referrals?.length ?? (loading ? '—' : 0)}</strong>
+        </div>
+      </div>
 
       <div className="referral-grid">
         <div className="panel referral-panel">
-          <label>Your referral code</label>
-          <div className="copy-box">{data?.referralCode || (loading ? 'Loading…' : 'Not set')}</div>
-          <p>Share this code with a new user. Referral registration and rewards are shown only when they are recorded in your account.</p>
+          <h2>Share your invite</h2>
+          <label htmlFor="referral-code">Your referral code</label>
+          <input id="referral-code" className="copy-box" readOnly value={data?.referralCode || (loading ? 'Loading…' : '')} />
+          <label htmlFor="referral-link">Your personal invite link</label>
+          <input id="referral-link" className="copy-box" readOnly value={referralLink} />
+          <button type="button" className="btn btn-primary" disabled={!referralLink} onClick={copyReferralLink}>
+            {copied ? 'Link copied' : 'Copy invite link'}
+          </button>
+          <p>Referral codes are optional at registration. A new person can open this link and the code will be filled in for them.</p>
         </div>
 
         <div className="panel referral-panel">
-          <h3>Recorded referrals ({data?.referrals?.length ?? 0})</h3>
+          <h2>How you earn</h2>
+          <div className="tier-row">
+            <div><strong>Tasker referral</strong><small>One-time reward after their task submission is approved by an admin.</small></div>
+            <span>{formatKes(5)}</span>
+          </div>
+          <div className="tier-row">
+            <div><strong>Poster affiliation</strong><small>One-time reward after their first task is approved and admin-verified deposits cover its posted budget.</small></div>
+            <span>{formatKes(30)}</span>
+          </div>
+          <p>Rewards are credited to your available wallet balance after the qualifying event is verified. Only direct referrals qualify; self-referrals and duplicate accounts are not eligible.</p>
+        </div>
+      </div>
+
+      <section className="panel referral-panel referral-history-panel">
+          <h2>Referral activity ({data?.referrals?.length ?? 0})</h2>
           {data?.referrals?.map((referral) => (
             <div key={referral.id} className="tier-row">
               <div>
                 <strong>{referral.full_name}</strong>
-                <small>{referral.status} · {formatDate(referral.created_at)}</small>
+                <small>{referral.reward_type === 'poster' ? 'Poster affiliation' : 'Tasker referral'} · Verified {formatDate(referral.created_at)}</small>
+                <small>{referral.status === 'paid'
+                  ? `Admin-verified reward credited${referral.credited_at ? ` · ${formatDate(referral.credited_at)}` : ''}`
+                  : referral.reward_type === 'poster'
+                    ? 'Waiting for first approved task and verified deposits to cover its budget'
+                    : 'Waiting for an admin-approved task completion'}</small>
               </div>
-              <span>{formatKes(referral.commission_kes)}</span>
+              <span>{formatKes(referral.status === 'paid' ? referral.commission_kes : referral.reward_kes)}</span>
             </div>
           ))}
-          {error && <div className="form-error" role="alert">{error}</div>}
           {!loading && !error && data?.referrals?.length === 0 && <p>No referrals are recorded for this account.</p>}
-        </div>
-      </div>
+      </section>
     </div>
   )
 }
@@ -2995,6 +3049,7 @@ function AuthPage({ type, onChangeType, onAuthenticated, onVerificationRequested
   const isPosterLogin = type === 'posterLogin'
   const isLogin = type === 'login' || isPosterLogin
   const isPosterSignup = type === 'posterSignup'
+  const inviteReferralCode = new URLSearchParams(window.location.search).get('ref') || ''
 
   async function handleAuth(event) {
     event.preventDefault()
@@ -3093,7 +3148,8 @@ function AuthPage({ type, onChangeType, onAuthenticated, onVerificationRequested
           {!isLogin && (
             <label>
               Referral code (optional)
-              <input name="referralCode" type="text" placeholder="HUSTLE254" />
+              <input name="referralCode" type="text" defaultValue={inviteReferralCode} maxLength="40" placeholder="Leave blank if you don't have one" />
+              <small>Optional. If someone invited you, their code may already be filled in.</small>
             </label>
           )}
           {isLogin && (
@@ -3189,7 +3245,7 @@ function TermsPage() {
         <section><h3>2. Tasks and submissions</h3><p>Read the instructions, eligibility criteria, time limits, and displayed reward before starting. Submit genuine, complete work and only the proof requested. A submission may be reviewed and can be declined if it does not meet the stated requirements or cannot be verified.</p></section>
         <section><h3>3. Rewards and wallet</h3><p>Task rewards are subject to completion and verification against the task requirements. A reward is added to your confirmed, eligible wallet balance only after approval. Pending deposits, pending submissions, reserved amounts, and other unconfirmed amounts are not eligible for withdrawal. Wallet activity is recorded in your transaction history.</p></section>
         <section><h3>4. Withdrawal minimum and service fees</h3><p>The minimum withdrawal request is KSh 128 ($1.00), using the platform’s displayed reference rate of KSh 128 per US dollar. A service and risk fee is deducted from the requested amount: KSh 10 for requests from KSh 128 through KSh 384 ($1.00–$3.00); KSh 15 for amounts above KSh 384 through KSh 896 (over $3.00 through $7.00); and KSh 25 for amounts above KSh 896 (over $7.00). The remaining amount is the estimated payout. The fee covers processing, fraud-risk controls, and related operating costs; it is not a tax imposed by a government. The rate and fees will be shown before you submit the request.</p></section>
-        <section><h3>5. Bonuses and referrals</h3><p>Bonuses and referral commissions are governed by the eligibility rules displayed for the specific offer or feature. A bonus is not earned by creating duplicate accounts, manipulating activity, or bypassing verification. We may withhold or reverse an improperly credited reward after review.</p></section>
+        <section><h3>5. Referral and affiliation rewards</h3><p>Referral codes are optional at registration. A referrer earns a one-time KSh 5 after a referred tasker completes a task submission approved by an administrator, or KSh 30 after a referred poster’s first task is approved and the poster’s administrator-verified deposits cover that task’s posted budget. The reward is credited to the referrer’s available wallet balance after verification. Only direct referrals qualify; self-referrals, duplicate accounts, and manipulated activity are not eligible. We may withhold or reverse an improperly credited reward after review.</p></section>
         <section><h3>6. Acceptable use</h3><p>Do not submit false proof, interfere with platform security, exploit errors, impersonate others, or use the platform for unlawful activity. We may restrict or suspend an account when reasonably necessary to protect users, task posters, or the platform, and may request additional information to review a case.</p></section>
         <section><h3>7. Availability and changes</h3><p>Task availability, reward amounts, and features may change. Hustle254 does not guarantee a particular volume of tasks, earnings, or payout timing. We will make reasonable efforts to keep the service available and communicate material changes through the platform where appropriate.</p></section>
         <section><h3>8. Questions and disputes</h3><p>Contact us with the account email and relevant task or transaction reference so we can review the issue. These terms should be read together with the Privacy Policy and Earning &amp; Reward Rules.</p></section>

@@ -2842,6 +2842,20 @@ input[type='file'] {
   font-size: 0.83rem;
 }
 
+.referral-panel .copy-box {
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+}
+
+.stats-grid.referral-earnings-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.referral-history-panel {
+  margin-top: 16px;
+}
+
 .copy-box {
   border-color: rgba(197, 237, 111, 0.15);
   background: #0d1614;
