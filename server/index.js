@@ -1213,12 +1213,36 @@ app.get('/api/poster/dashboard', requireAuth, requireRole('poster'), async (req,
 app.get('/api/admin/task-posts', requireAuth, requireAdmin, async (req, res) => {
   if (databaseOnline) {
     const result = await pool.query(
-      "SELECT * FROM task_posts WHERE status = 'pending_review' ORDER BY created_at ASC"
+      'SELECT * FROM task_posts ORDER BY created_at DESC'
     );
     return res.json({ taskPosts: result.rows });
   }
 
-  res.json({ taskPosts: mockTaskPosts.filter((post) => post.status === 'pending_review') });
+  res.json({ taskPosts: mockTaskPosts });
+});
+
+app.delete('/api/admin/task-posts/:id', requireAuth, requireAdmin, async (req, res) => {
+  let taskPost;
+  if (databaseOnline) {
+    const result = await pool.query(
+      'DELETE FROM task_posts WHERE id = $1 RETURNING id, title',
+      [req.params.id]
+    );
+    [taskPost] = result.rows;
+  } else {
+    const postIndex = mockTaskPosts.findIndex((post) => post.id === req.params.id);
+    if (postIndex !== -1) {
+      [taskPost] = mockTaskPosts.splice(postIndex, 1);
+      for (let index = mockSubmissions.length - 1; index >= 0; index -= 1) {
+        if (String(mockSubmissions[index].task_post_id) === String(taskPost.id)) {
+          mockSubmissions.splice(index, 1);
+        }
+      }
+    }
+  }
+
+  if (!taskPost) return res.status(404).json({ message: 'Task post not found.' });
+  return res.json({ message: 'Task post deleted.', taskPost });
 });
 
 app.patch('/api/admin/task-posts/:id/status', requireAuth, requireAdmin, async (req, res) => {
