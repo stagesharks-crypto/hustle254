@@ -3411,6 +3411,17 @@ input[type='file'] {
   font-size: 0.76rem;
 }
 
+.review-actions .btn-delete {
+  border: 1px solid rgba(255, 107, 107, 0.35);
+  background: rgba(255, 107, 107, 0.1);
+  color: #ffb1a9;
+}
+
+.review-actions .btn-delete:hover {
+  border-color: rgba(255, 107, 107, 0.6);
+  background: rgba(255, 107, 107, 0.18);
+}
+
 button:disabled {
   cursor: wait;
   opacity: 0.65;

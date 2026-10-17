@@ -373,8 +373,8 @@ function App() {
   useEffect(() => {
     if (currentPage !== 'Admin' || !session?.adminToken) return
     apiRequest('/admin/task-posts', { token: session.adminToken })
-      .then(({ taskPosts: pendingPosts }) => {
-        setTaskPosts(pendingPosts)
+      .then(({ taskPosts: posts }) => {
+        setTaskPosts(posts)
         setTaskPostError('')
       })
       .catch((error) => setTaskPostError(error.message))
@@ -394,12 +394,25 @@ function App() {
       token: session?.adminToken,
       body: JSON.stringify({ status }),
     })
-    setTaskPosts((currentPosts) => currentPosts.filter((post) => post.id !== id))
+    setTaskPosts((currentPosts) => currentPosts.map((post) => (
+      post.id === id
+        ? { ...post, status, reviewed_at: new Date().toISOString() }
+        : post
+    )))
     if (status === 'approved') {
       const { tasks: publishedTasks } = await apiRequest('/tasks')
       setTasks(publishedTasks.map(normalizeTask))
     }
     return result
+  }
+
+  async function deleteTaskPost(id) {
+    await apiRequest(`/admin/task-posts/${id}`, {
+      method: 'DELETE',
+      token: session?.adminToken,
+    })
+    setTaskPosts((currentPosts) => currentPosts.filter((post) => post.id !== id))
+    setTasks((currentTasks) => currentTasks.filter((task) => task.id !== String(id)))
   }
 
   function handleAuthenticated(nextSession) {
@@ -534,6 +547,7 @@ function App() {
             taskPosts={taskPosts}
             error={taskPostError}
             onModerateTaskPost={moderateTaskPost}
+            onDeleteTaskPost={deleteTaskPost}
           />
         )
       case 'Tasks':
@@ -570,6 +584,7 @@ function App() {
             taskPosts={taskPosts}
             error={taskPostError}
             onModerateTaskPost={moderateTaskPost}
+            onDeleteTaskPost={deleteTaskPost}
           />
         )
       case 'Trust':
@@ -2159,7 +2174,7 @@ function AdminAccessGate({ onVerifyAdminPassword }) {
   )
 }
 
-function AdminPage({ session, onAuthenticated, onVerifyAdminPassword, taskPosts, error, onModerateTaskPost, initialSection = 'Overview' }) {
+function AdminPage({ session, onAuthenticated, onVerifyAdminPassword, taskPosts, error, onModerateTaskPost, onDeleteTaskPost, initialSection = 'Overview' }) {
   const [workingId, setWorkingId] = useState('')
   const [actionError, setActionError] = useState('')
   const [overview, setOverview] = useState(null)
@@ -2251,6 +2266,14 @@ function AdminPage({ session, onAuthenticated, onVerifyAdminPassword, taskPosts,
 
   async function reviewPost(postId, status) {
     await runAdminAction(postId, () => onModerateTaskPost(postId, status))
+  }
+
+  async function deletePost(post) {
+    const confirmed = window.confirm(
+      `Permanently delete "${post.title}"? Any participant submissions linked to this task will also be deleted.`
+    )
+    if (!confirmed) return
+    await runAdminAction(post.id, () => onDeleteTaskPost(post.id))
   }
 
   function updateStatus(path, id, status, update) {
@@ -2450,16 +2473,17 @@ function AdminPage({ session, onAuthenticated, onVerifyAdminPassword, taskPosts,
       <section className="panel task-post-review">
         <div className="review-section-heading">
           <div><span className="home-overline">Publisher review</span><h2>Submitted task posts</h2></div>
-          <span className="review-count">{taskPosts.length} pending</span>
+          <span className="review-count">{taskPosts.length} total · {taskPosts.filter((post) => post.status === 'pending_review').length} pending</span>
         </div>
         {taskPosts.length === 0 ? (
-          <p className="empty-review">No task posts are waiting for approval.</p>
+          <p className="empty-review">No task posts have been submitted.</p>
         ) : (
           <div className="task-post-review-list">
             {taskPosts.map((post) => (
               <article className="task-post-review-card" key={post.id}>
                 <div className="review-post-main">
                   <span className="task-tag">{post.category}</span>
+                  <span className={`status-badge status-${post.status}`}>{post.status.replace('_', ' ')}</span>
                   <h3>{post.title}</h3>
                   <p>{post.description}</p>
                   <p className="review-poster">Submitted by {post.poster_name} · {post.poster_email}</p>
@@ -2472,17 +2496,24 @@ function AdminPage({ session, onAuthenticated, onVerifyAdminPassword, taskPosts,
                   <div><span>Reward budget</span><strong>KSh {Number(post.total_budget_kes).toLocaleString('en-KE')}</strong></div>
                   <div><span>Due date</span><strong>{new Date(post.due_date).toLocaleDateString('en-KE')}</strong></div>
                   <div className="review-actions">
-                    <button type="button" className="btn btn-primary" disabled={workingId === post.id} onClick={() => reviewPost(post.id, 'approved')}>
-                      {workingId === post.id ? 'Saving…' : 'Approve & publish'}
+                    {post.status === 'pending_review' && (
+                      <>
+                        <button type="button" className="btn btn-primary" disabled={workingId === post.id} onClick={() => reviewPost(post.id, 'approved')}>
+                          {workingId === post.id ? 'Saving…' : 'Approve & publish'}
+                        </button>
+                        <button type="button" className="btn btn-secondary" disabled={workingId === post.id} onClick={() => reviewPost(post.id, 'rejected')}>Reject</button>
+                      </>
+                    )}
+                    <button type="button" className="btn btn-secondary btn-delete" disabled={workingId === post.id} onClick={() => deletePost(post)}>
+                      {workingId === post.id ? 'Deleting…' : 'Delete task'}
                     </button>
-                    <button type="button" className="btn btn-secondary" disabled={workingId === post.id} onClick={() => reviewPost(post.id, 'rejected')}>Reject</button>
                   </div>
                 </div>
               </article>
             ))}
           </div>
         )}
-        <p className="review-disclaimer">Approval publishes a post, but does not collect or reserve funds. Verify off-platform funding before publishing.</p>
+        <p className="review-disclaimer">Approval publishes a post, but does not collect or reserve funds. Verify off-platform funding before publishing. Deleting a task permanently removes its linked participant submissions.</p>
       </section>
       )}
 
