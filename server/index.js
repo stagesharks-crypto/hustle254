@@ -1162,17 +1162,14 @@ app.get('/api/poster/dashboard', requireAuth, requireRole('poster'), async (req,
                 COALESCE(submission_counts.approved_count, 0)::int AS approved_count,
                 COALESCE(submission_counts.rejected_count, 0)::int AS rejected_count
          FROM task_posts
-         LEFT JOIN (
-           SELECT task_posts.id,
-                  COUNT(task_submissions.id) AS submissions_count,
+         LEFT JOIN LATERAL (
+           SELECT COUNT(task_submissions.id) AS submissions_count,
                   COUNT(task_submissions.id) FILTER (WHERE task_submissions.status = 'pending_review') AS pending_count,
                   COUNT(task_submissions.id) FILTER (WHERE task_submissions.status = 'approved') AS approved_count,
                   COUNT(task_submissions.id) FILTER (WHERE task_submissions.status = 'rejected') AS rejected_count
-           FROM task_posts
-           LEFT JOIN task_submissions ON task_submissions.task_post_id = task_posts.id
-           WHERE task_posts.poster_user_id = $1 OR (task_posts.poster_user_id IS NULL AND LOWER(task_posts.poster_email) = LOWER($2))
-           GROUP BY task_posts.id
-         ) AS submission_counts ON submission_counts.id = task_posts.id
+           FROM task_submissions
+           WHERE task_submissions.task_post_id = task_posts.id
+         ) AS submission_counts ON TRUE
          WHERE task_posts.poster_user_id = $1
             OR (task_posts.poster_user_id IS NULL AND LOWER(task_posts.poster_email) = LOWER($2))
          ORDER BY task_posts.created_at DESC`,
