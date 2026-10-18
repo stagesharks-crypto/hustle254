@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'user',
   referral_code TEXT UNIQUE,
+  referred_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  external_user_id UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
   is_verified BOOLEAN NOT NULL DEFAULT FALSE,
   status TEXT NOT NULL DEFAULT 'active',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -17,6 +19,8 @@ CREATE TABLE IF NOT EXISTS users (
 
 ALTER TABLE users ALTER COLUMN phone DROP NOT NULL;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS external_user_id UUID NOT NULL DEFAULT gen_random_uuid();
 ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_hash TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_expires_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_requested_at TIMESTAMPTZ;
@@ -26,6 +30,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_code_hash TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_expires_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_requested_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_attempts INTEGER NOT NULL DEFAULT 0;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external_user_id ON users(external_user_id);
 UPDATE users
 SET email_verified_at = COALESCE(email_verified_at, created_at)
 WHERE email_verified_at IS NULL AND email_verification_code_hash IS NULL;
@@ -91,7 +96,7 @@ CREATE TABLE IF NOT EXISTS task_posts (
   task_url TEXT,
   proof_requirements TEXT NOT NULL,
   participant_limit INTEGER NOT NULL CHECK (participant_limit BETWEEN 1 AND 10000),
-  payout_kes NUMERIC(12,2) NOT NULL CHECK (payout_kes >= 10),
+  payout_kes NUMERIC(12,2) NOT NULL CONSTRAINT task_posts_payout_kes_minimum CHECK (payout_kes >= 1),
   total_budget_kes NUMERIC(14,2) NOT NULL,
   due_date DATE NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending_review' CHECK (status IN ('pending_review', 'approved', 'rejected')),
@@ -144,6 +149,7 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
   payment_method TEXT,
   transaction_reference TEXT,
   destination TEXT,
+  fee_amount_kes NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (fee_amount_kes >= 0),
   description TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   reviewed_at TIMESTAMPTZ,
@@ -163,6 +169,22 @@ CREATE INDEX IF NOT EXISTS idx_wallet_transactions_review_queue
   ON wallet_transactions(transaction_type, status, created_at)
   WHERE status = 'pending_review';
 
+CREATE TABLE IF NOT EXISTS wallet_ledger_entries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  wallet_id UUID NOT NULL REFERENCES wallets(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  entry_type TEXT NOT NULL CHECK (entry_type IN ('task_reward', 'streak_reward', 'survey_reward', 'referral_reward', 'adjustment')),
+  amount_kes NUMERIC(12,2) NOT NULL CHECK (amount_kes > 0),
+  source_type TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  description TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (source_type, source_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wallet_ledger_user_created
+  ON wallet_ledger_entries(user_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS payouts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -179,8 +201,13 @@ CREATE TABLE IF NOT EXISTS referrals (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   referrer_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   referred_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  reward_type TEXT NOT NULL CHECK (reward_type IN ('tasker', 'poster')),
+  reward_kes NUMERIC(12,2) NOT NULL CONSTRAINT referrals_reward_amount_check CHECK (reward_kes > 0),
   commission_kes NUMERIC(12,2) NOT NULL DEFAULT 0,
-  status TEXT NOT NULL DEFAULT 'pending',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'paid')),
+  qualifying_event_id TEXT,
+  qualified_at TIMESTAMPTZ,
+  credited_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -201,5 +228,7 @@ CREATE INDEX IF NOT EXISTS idx_task_submissions_user ON task_submissions(user_id
 CREATE INDEX IF NOT EXISTS idx_task_submissions_task_post ON task_submissions(task_post_id);
 CREATE INDEX IF NOT EXISTS idx_payouts_user ON payouts(user_id);
 CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_referrals_one_per_referred_user ON referrals(referred_user_id);
+CREATE INDEX IF NOT EXISTS idx_referrals_reward_pending ON referrals(reward_type, status) WHERE status = 'pending';
 CREATE INDEX IF NOT EXISTS idx_task_posts_status_due_date ON task_posts(status, due_date);
 CREATE INDEX IF NOT EXISTS idx_task_posts_poster_user ON task_posts(poster_user_id);
