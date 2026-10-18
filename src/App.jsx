@@ -198,7 +198,8 @@ function App() {
   const [currentPage, setCurrentPageState] = useState('Home')
   const [theme, setTheme] = useState(() => {
     try {
-      return localStorage.getItem('hustle254-theme') === 'light' ? 'light' : 'dark'
+      const savedTheme = localStorage.getItem('hustle254-theme')
+      return ['dark', 'light', 'kenya'].includes(savedTheme) ? savedTheme : 'dark'
     } catch {
       return 'dark'
     }
@@ -231,7 +232,7 @@ function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
-    document.documentElement.style.colorScheme = theme
+    document.documentElement.style.colorScheme = theme === 'dark' ? 'dark' : 'light'
     try {
       localStorage.setItem('hustle254-theme', theme)
     } catch {
@@ -724,18 +725,39 @@ function App() {
           </button>}
           <div className="topbar-context">{effectivePage === 'Login' || effectivePage === 'Sign up' ? 'Your account' : effectivePage}</div>
 
-          <button
-            type="button"
-            className="theme-toggle"
-            onClick={() => setTheme((currentTheme) => currentTheme === 'dark' ? 'light' : 'dark')}
-            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-            aria-pressed={theme === 'light'}
-            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-          >
-            <span className="theme-toggle-icon" aria-hidden="true">{theme === 'dark' ? '☼' : '☾'}</span>
-            <span className="theme-toggle-label">{theme === 'dark' ? 'Light' : 'Dark'}</span>
-            <span className="theme-toggle-track" aria-hidden="true"><span /></span>
-          </button>
+          <div className="theme-picker" role="group" aria-label="Color theme">
+            <button
+              type="button"
+              className={theme === 'dark' ? 'theme-option active' : 'theme-option'}
+              onClick={() => setTheme('dark')}
+              aria-label="Use Dark theme"
+              aria-pressed={theme === 'dark'}
+              title="Dark theme"
+            >
+              <span aria-hidden="true">☾</span><span className="theme-option-label">Dark</span>
+            </button>
+            <button
+              type="button"
+              className={theme === 'light' ? 'theme-option active' : 'theme-option'}
+              onClick={() => setTheme('light')}
+              aria-label="Use Light theme"
+              aria-pressed={theme === 'light'}
+              title="Light theme"
+            >
+              <span aria-hidden="true">☼</span><span className="theme-option-label">Light</span>
+            </button>
+            <button
+              type="button"
+              className={theme === 'kenya' ? 'theme-option active' : 'theme-option'}
+              onClick={() => setTheme('kenya')}
+              aria-label="Use Made in Kenya theme"
+              aria-pressed={theme === 'kenya'}
+              title="Made in Kenya theme"
+            >
+              <span className="theme-option-flag" aria-hidden="true"><i /><i /><i /></span>
+              <span className="theme-option-label">Kenya</span>
+            </button>
+          </div>
 
           {session ? (
             <div className="topbar-profile-wrap">
@@ -1423,7 +1445,7 @@ function PostTaskPage({ onSubmit }) {
             </label>
             <label>
               Reward per completed task (KSh) <span>*</span>
-              <input name="payoutKes" type="number" min="10" max="100000" step="1" value={payout} onChange={(event) => setPayout(event.target.value)} required />
+              <input name="payoutKes" type="number" min="1" max="100000" step="1" value={payout} onChange={(event) => setPayout(event.target.value)} required />
             </label>
             <label>
               Complete by <span>*</span>

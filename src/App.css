@@ -3788,66 +3788,82 @@ button:disabled {
   cursor: pointer;
 }
 
-.theme-toggle {
+.theme-picker {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  min-height: 40px;
-  padding: 5px 10px;
-  border: 1px solid rgba(197, 237, 111, 0.2);
   border-radius: 999px;
-  background: rgba(197, 237, 111, 0.06);
+  padding: 4px;
+  border: 1px solid rgba(197, 237, 111, 0.2);
+  background: rgba(12, 18, 16, 0.88);
   color: #eaf3e1;
-  font-size: 0.76rem;
+  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.14);
+}
+
+.theme-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.72rem;
   font-weight: 700;
+  white-space: nowrap;
   cursor: pointer;
-  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+  transition: color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
 
-.theme-toggle:hover {
-  transform: translateY(-1px);
-  border-color: rgba(197, 237, 111, 0.48);
-  background: rgba(197, 237, 111, 0.12);
+.theme-option:hover {
+  background: rgba(255, 255, 255, 0.08);
 }
 
-.theme-toggle:focus-visible {
+.theme-option:active {
+  transform: scale(0.96);
+}
+
+.theme-option:focus-visible {
   outline: 2px solid #c5ed6f;
   outline-offset: 3px;
 }
 
-.theme-toggle-icon {
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: rgba(197, 237, 111, 0.13);
-  color: #c5ed6f;
+.theme-option > span:first-child {
   font-size: 1rem;
+  line-height: 1;
 }
 
-.theme-toggle-track {
-  position: relative;
-  width: 31px;
-  height: 18px;
-  border: 1px solid rgba(197, 237, 111, 0.36);
-  border-radius: 999px;
-  background: rgba(197, 237, 111, 0.12);
+.theme-option.active {
+  border-color: rgba(197, 237, 111, 0.25);
+  background: rgba(197, 237, 111, 0.15);
+  color: #d8f291;
+  box-shadow: inset 0 0 0 1px rgba(197, 237, 111, 0.06);
 }
 
-.theme-toggle-track > span {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #c5ed6f;
-  transition: transform 0.2s ease;
+.theme-option-flag {
+  display: grid;
+  gap: 1px;
+  width: 16px;
+  height: 13px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: #fff;
 }
 
-html[data-theme='light'] .theme-toggle-track > span {
-  transform: translateX(13px);
+.theme-option-flag i {
+  display: block;
+  background: #111;
+}
+
+.theme-option-flag i:nth-child(2) {
+  background: #bb0000;
+}
+
+.theme-option-flag i:nth-child(3) {
+  background: #087a3a;
 }
 
 html[data-theme='light'] {
@@ -3952,24 +3968,16 @@ html[data-theme='light'] .topbar-profile {
   color: #253329;
 }
 
-html[data-theme='light'] .theme-toggle {
+html[data-theme='light'] .theme-picker {
   border-color: #d4dfc6;
   background: #fff;
   color: #243329;
 }
 
-html[data-theme='light'] .theme-toggle-icon {
-  background: #edf3e4;
-  color: #4b6d1b;
-}
-
-html[data-theme='light'] .theme-toggle-track {
-  border-color: #c4d4ad;
-  background: #edf3e4;
-}
-
-html[data-theme='light'] .theme-toggle-track > span {
-  background: #547922;
+html[data-theme='light'] .theme-option.active {
+  border-color: #d4e4bd;
+  background: #eef4e4;
+  color: #42611b;
 }
 
 html[data-theme='light'] .page-top {
@@ -4365,6 +4373,566 @@ html[data-theme='light'] .form-error {
   color: #972d24;
 }
 
+html[data-theme='kenya'] {
+  color-scheme: light;
+  --bg: #fffaf1;
+  --bg-2: #f1f7ed;
+  --panel: #fff;
+  --panel-soft: #f8fbf5;
+  --line: #e6e8df;
+  --text-main: #17231b;
+  --text-soft: #354b3b;
+  --muted: #657469;
+  --gold: #e87500;
+  --gold-deep: #c95f00;
+  --success: #087a3a;
+  --danger: #bb0000;
+  background: #fffaf1;
+  color: #17231b;
+}
+
+html[data-theme='kenya'] body {
+  background:
+    radial-gradient(ellipse at 92% 10%, rgba(238, 119, 0, 0.14), transparent 26%),
+    radial-gradient(ellipse at 6% 46%, rgba(8, 122, 58, 0.12), transparent 28%),
+    linear-gradient(135deg, #fffaf1 0%, #f6f8ef 56%, #fff4eb 100%);
+  color: var(--text-main);
+}
+
+html[data-theme='kenya'] .app-shell {
+  color: var(--text-main);
+}
+
+html[data-theme='kenya'] .app-content :where(h1, h2, h3, h4, p, label, small, strong, span, li, dt, dd, th, td, legend) {
+  color: var(--text-main);
+}
+
+html[data-theme='kenya'] .side-menu {
+  position: fixed;
+  border-right-color: #075c31;
+  background: linear-gradient(165deg, #087a3a, #05602f 70%, #064b29);
+  box-shadow: 8px 0 28px rgba(12, 68, 37, 0.18);
+}
+
+html[data-theme='kenya'] .side-menu::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 5px;
+  background: linear-gradient(90deg, #111 0 28%, #fff 28% 33%, #bb0000 33% 58%, #fff 58% 63%, #087a3a 63%);
+  content: '';
+}
+
+html[data-theme='kenya'] .brand-mark {
+  background: linear-gradient(145deg, #ffb000, #ff5b00);
+  color: #08090a;
+  box-shadow: 0 8px 24px rgba(255, 111, 0, 0.25);
+}
+
+html[data-theme='kenya'] .brand-name,
+html[data-theme='kenya'] .topbar-context {
+  color: #17231b;
+}
+
+html[data-theme='kenya'] .brand-name {
+  color: #fff;
+}
+
+html[data-theme='kenya'] .brand-tag,
+html[data-theme='kenya'] .side-nav-label {
+  color: #d1ead8;
+}
+
+html[data-theme='kenya'] .side-nav-link {
+  color: #f2fff5;
+}
+
+html[data-theme='kenya'] .side-nav-link:hover,
+html[data-theme='kenya'] .side-nav-link.active {
+  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
+html[data-theme='kenya'] .side-nav-icon,
+html[data-theme='kenya'] .side-nav-link.active .side-nav-icon {
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #ffd08a;
+}
+
+html[data-theme='kenya'] .side-menu-footer {
+  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(0, 49, 25, 0.22);
+}
+
+html[data-theme='kenya'] .side-menu-footer p,
+html[data-theme='kenya'] .side-menu-footer .btn-primary {
+  color: #fff;
+}
+
+html[data-theme='kenya'] .topbar {
+  background: linear-gradient(#fffaf1 80%, rgba(255, 250, 241, 0));
+}
+
+html[data-theme='kenya'] .topbar-back,
+html[data-theme='kenya'] .menu-toggle {
+  border-color: #dce5d9;
+  background: rgba(255, 255, 255, 0.82);
+  color: #203629;
+}
+
+html[data-theme='kenya'] .menu-toggle span {
+  background: #087a3a;
+}
+
+html[data-theme='kenya'] .topbar-account,
+html[data-theme='kenya'] .topbar-profile {
+  border-color: #d9e6d9;
+  background: #fff;
+  color: #203629;
+}
+
+html[data-theme='kenya'] .topbar-account {
+  background: #fff1df;
+  color: #a94e00;
+}
+
+html[data-theme='kenya'] .theme-picker {
+  border-color: #d8dfd4;
+  background: rgba(255, 255, 255, 0.92);
+  color: #35483a;
+}
+
+html[data-theme='kenya'] .theme-option:hover {
+  background: #f3f6ef;
+}
+
+html[data-theme='kenya'] .theme-option.active {
+  border-color: #f3c58f;
+  background: #fff1df;
+  color: #a64d00;
+}
+
+html[data-theme='kenya'] .page-top {
+  border-bottom-color: rgba(8, 122, 58, 0.24);
+}
+
+html[data-theme='kenya'] .page-top .eyebrow,
+html[data-theme='kenya'] .auth-panel > .eyebrow,
+html[data-theme='kenya'] .eyebrow {
+  background: #fff0dd;
+  color: #a94e00;
+}
+
+html[data-theme='kenya'] .page-top h1,
+html[data-theme='kenya'] .hero-copy h1,
+html[data-theme='kenya'] .home-section-intro h2,
+html[data-theme='kenya'] .home-how h2,
+html[data-theme='kenya'] .feature-card h3,
+html[data-theme='kenya'] .task-card h3,
+html[data-theme='kenya'] .step-card h3,
+html[data-theme='kenya'] .split-card h3,
+html[data-theme='kenya'] .panel h3 {
+  color: #17231b;
+}
+
+html[data-theme='kenya'] .page-top p,
+html[data-theme='kenya'] .feature-card p,
+html[data-theme='kenya'] .step-card p,
+html[data-theme='kenya'] .task-card p,
+html[data-theme='kenya'] .hero-copy p {
+  color: #46584b;
+}
+
+html[data-theme='kenya'] .hero-copy,
+html[data-theme='kenya'] .welcome-copy {
+  border-color: rgba(8, 122, 58, 0.2);
+  background:
+    radial-gradient(circle at 8% 10%, rgba(8, 122, 58, 0.14), transparent 35%),
+    radial-gradient(circle at 92% 86%, rgba(187, 0, 0, 0.08), transparent 28%),
+    linear-gradient(135deg, #fff 0%, #fffaf1 58%, #f4f8ef 100%);
+}
+
+html[data-theme='kenya'] .panel,
+html[data-theme='kenya'] .stat-card,
+html[data-theme='kenya'] .feature-card,
+html[data-theme='kenya'] .step-card,
+html[data-theme='kenya'] .split-card,
+html[data-theme='kenya'] .task-card,
+html[data-theme='kenya'] .auth-panel,
+html[data-theme='kenya'] .legal-panel,
+html[data-theme='kenya'] .proof-form-panel,
+html[data-theme='kenya'] .proof-sidebar,
+html[data-theme='kenya'] .wallet-summary,
+html[data-theme='kenya'] .payout-methods,
+html[data-theme='kenya'] .referral-panel,
+html[data-theme='kenya'] .admin-data-panel,
+html[data-theme='kenya'] .task-list-panel,
+html[data-theme='kenya'] .task-detail-panel,
+html[data-theme='kenya'] .task-review-panel,
+html[data-theme='kenya'] .wallet-transparency,
+html[data-theme='kenya'] .streak-hero,
+html[data-theme='kenya'] .streak-history-panel {
+  border-color: #e1e8dc;
+  background-color: #fff;
+  color: #17231b;
+}
+
+html[data-theme='kenya'] .feature-card,
+html[data-theme='kenya'] .step-card {
+  border-top-color: rgba(255, 133, 0, 0.52);
+}
+
+html[data-theme='kenya'] .feature-card:hover,
+html[data-theme='kenya'] .step-card:hover,
+html[data-theme='kenya'] .feature-card-action:hover {
+  border-top-color: #e87500;
+  background-color: #fffaf1;
+}
+
+html[data-theme='kenya'] .feature-card-link,
+html[data-theme='kenya'] .task-amount,
+html[data-theme='kenya'] .welcome-kicker,
+html[data-theme='kenya'] .home-overline,
+html[data-theme='kenya'] .welcome-copy h1 em,
+html[data-theme='kenya'] .home-how h2 em,
+html[data-theme='kenya'] .welcome-note span,
+html[data-theme='kenya'] .home-how-steps > div > span,
+html[data-theme='kenya'] .opportunity-number,
+html[data-theme='kenya'] .opportunity-arrow,
+html[data-theme='kenya'] .streak-retry {
+  color: #b45b00;
+}
+
+html[data-theme='kenya'] .app-content :where(h1, h2, h3, h4, p, label, small, strong, span, li, dt, dd, th, td, legend) {
+  color: inherit;
+}
+
+html[data-theme='kenya'] .app-content :where(h1, h2, h3, h4, strong, th) {
+  color: #17231b;
+}
+
+html[data-theme='kenya'] .app-content :where(p, small, label, li, dt, dd) {
+  color: #46584b;
+}
+
+html[data-theme='kenya'] .feature-card-action:focus-visible,
+html[data-theme='kenya'] .theme-option:focus-visible {
+  outline-color: #e87500;
+}
+
+html[data-theme='kenya'] .tag,
+html[data-theme='kenya'] .task-tag,
+html[data-theme='kenya'] .status-badge {
+  border-color: #f0d0a8;
+  background: #fff4e7;
+  color: #a94e00;
+}
+
+html[data-theme='kenya'] .btn-primary,
+html[data-theme='kenya'] .welcome-primary {
+  border-color: #df6800;
+  background: linear-gradient(135deg, #ff9c24, #ed6500);
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(213, 91, 0, 0.18);
+}
+
+html[data-theme='kenya'] .btn-primary:hover,
+html[data-theme='kenya'] .welcome-primary:hover {
+  border-color: #bd5100;
+  background: linear-gradient(135deg, #f58a0b, #d85400);
+  color: #fff;
+}
+
+html[data-theme='kenya'] .btn-secondary {
+  border-color: #dce5d9;
+  background: #fff;
+  color: #263b2d;
+}
+
+html[data-theme='kenya'] .btn-secondary:hover,
+html[data-theme='kenya'] .pill.active {
+  border-color: #e8a65c;
+}
+
+html[data-theme='kenya'] .pill.active {
+  background: #fff1df;
+  color: #a94e00;
+}
+
+html[data-theme='kenya'] .step-number {
+  border-color: #d5e6d8;
+  background: #edf7ef;
+  color: #087a3a;
+}
+
+html[data-theme='kenya'] .wallet-live-indicator,
+html[data-theme='kenya'] .status-approved {
+  background-color: #168443;
+}
+
+html[data-theme='kenya'] .wallet-live-indicator {
+  box-shadow: 0 0 12px rgba(22, 132, 67, 0.7);
+}
+
+html[data-theme='kenya'] .wallet-balance-approved strong,
+html[data-theme='kenya'] .status-approved {
+  color: #49c27b;
+}
+
+html[data-theme='kenya'] .wallet-balance-pending strong,
+html[data-theme='kenya'] .status-pending_review {
+  color: #ffb000;
+}
+
+html[data-theme='kenya'] .wallet-balance-rejected strong,
+html[data-theme='kenya'] .status-rejected {
+  color: #ff6b70;
+}
+
+html[data-theme='kenya'] input:focus,
+html[data-theme='kenya'] textarea:focus,
+html[data-theme='kenya'] select:focus {
+  border-color: #e87500;
+  outline-color: rgba(232, 117, 0, 0.28);
+}
+
+html[data-theme='kenya'] .welcome-hero {
+  position: relative;
+  border-color: rgba(8, 122, 58, 0.2);
+  background:
+    radial-gradient(circle at 8% 15%, rgba(8, 122, 58, 0.14), transparent 34%),
+    radial-gradient(circle at 82% 78%, rgba(187, 0, 0, 0.09), transparent 28%),
+    linear-gradient(135deg, #fff 0%, #fffaf1 58%, #f2f7ed 100%);
+}
+
+html[data-theme='kenya'] .welcome-hero::before {
+  position: absolute;
+  z-index: 3;
+  inset: 0 0 auto;
+  height: 6px;
+  background: linear-gradient(90deg, #111 0 28%, #fff 28% 33%, #bb0000 33% 58%, #fff 58% 63%, #087a3a 63%);
+  content: '';
+  pointer-events: none;
+}
+
+html[data-theme='kenya'] .welcome-visual {
+  background:
+    radial-gradient(circle at 78% 28%, rgba(255, 156, 36, 0.22), transparent 30%),
+    linear-gradient(145deg, #edf6ec, #fff5eb 56%, #f8eeee);
+}
+
+html[data-theme='kenya'] .welcome-kicker,
+html[data-theme='kenya'] .home-overline,
+html[data-theme='kenya'] .welcome-copy h1 em,
+html[data-theme='kenya'] .home-how h2 em,
+html[data-theme='kenya'] .home-section-intro h2 em,
+html[data-theme='kenya'] .welcome-payments b,
+html[data-theme='kenya'] .opportunity-link,
+html[data-theme='kenya'] .opportunity-link i {
+  color: #a94e00;
+}
+
+html[data-theme='kenya'] .welcome-kicker > span {
+  background: linear-gradient(180deg, #ffb000, #ff6500);
+  box-shadow: 0 0 0 6px rgba(255, 133, 0, 0.13);
+}
+
+html[data-theme='kenya'] .welcome-proof-points i {
+  background: rgba(0, 102, 0, 0.28);
+  color: #58c27c;
+}
+
+html[data-theme='kenya'] .welcome-secondary:hover,
+html[data-theme='kenya'] .home-how-link:hover {
+  color: #ffad43;
+}
+
+html[data-theme='kenya'] .hero-glow-one {
+  background: rgba(8, 122, 58, 0.24);
+}
+
+html[data-theme='kenya'] .hero-glow-two {
+  background: rgba(187, 0, 0, 0.14);
+}
+
+html[data-theme='kenya'] .hero-orbit,
+html[data-theme='kenya'] .hero-wallet-card {
+  border-color: rgba(8, 122, 58, 0.34);
+}
+
+html[data-theme='kenya'] .hero-coin {
+  background: radial-gradient(circle at 35% 30%, #fff1c4 0%, #ffb000 34%, #ff6500 78%, #e64a00 100%);
+  box-shadow: inset 0 12px 22px rgba(255, 255, 255, 0.28), 0 36px 32px rgba(255, 111, 0, 0.2);
+}
+
+html[data-theme='kenya'] .hero-coin-front {
+  box-shadow: inset 0 18px 30px rgba(255, 255, 255, 0.26), 0 38px 36px rgba(255, 111, 0, 0.24);
+}
+
+html[data-theme='kenya'] .hero-wallet-card {
+  border-color: rgba(8, 81, 42, 0.24);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.97), rgba(242, 249, 240, 0.96));
+  box-shadow: 0 26px 50px rgba(22, 65, 39, 0.2);
+}
+
+html[data-theme='kenya'] .hero-wallet-topline,
+html[data-theme='kenya'] .hero-wallet-balance,
+html[data-theme='kenya'] .hero-wallet-footer,
+html[data-theme='kenya'] .hero-wallet-label,
+html[data-theme='kenya'] .hero-visual-caption {
+  color: #17231b;
+  text-shadow: none;
+}
+
+html[data-theme='kenya'] .hero-visual-caption strong {
+  color: #17231b;
+}
+
+html[data-theme='kenya'] .hero-float-card strong {
+  color: #17231b;
+}
+
+html[data-theme='kenya'] .hero-float-card small {
+  color: #657469;
+}
+
+html[data-theme='kenya'] .hero-wallet-mark {
+  background: linear-gradient(135deg, #ffb000, #ff6500);
+  color: #100b06;
+}
+
+html[data-theme='kenya'] .hero-wallet-dots,
+html[data-theme='kenya'] .hero-wallet-icon,
+html[data-theme='kenya'] .hero-float-icon,
+html[data-theme='kenya'] .hero-streak-icon {
+  color: #087a3a;
+}
+
+html[data-theme='kenya'] .hero-wallet-divider {
+  background: linear-gradient(90deg, rgba(8, 122, 58, 0.45), rgba(187, 0, 0, 0.2), rgba(255, 255, 255, 0.5));
+}
+
+html[data-theme='kenya'] .hero-wallet-footer i,
+html[data-theme='kenya'] .hero-streak-dots i {
+  background: #168443;
+}
+
+html[data-theme='kenya'] .hero-float-card {
+  border-color: rgba(15, 74, 39, 0.16);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 30px rgba(22, 65, 39, 0.14);
+}
+
+html[data-theme='kenya'] .hero-float-icon,
+html[data-theme='kenya'] .hero-streak-icon {
+  background: rgba(255, 133, 0, 0.15);
+}
+
+html[data-theme='kenya'] .hero-visual-caption span {
+  color: #087a3a;
+}
+
+html[data-theme='kenya'] .opportunity-icon {
+  border-color: #d5e6d8;
+  background: #edf7ef;
+  color: #087a3a;
+}
+
+html[data-theme='kenya'] .opportunity-row:hover {
+  background: rgba(8, 122, 58, 0.05);
+}
+
+html[data-theme='kenya'] .queue-head,
+html[data-theme='kenya'] .queue-row,
+html[data-theme='kenya'] .wallet-review-row,
+html[data-theme='kenya'] .task-post-review-card,
+html[data-theme='kenya'] .review-post-card,
+html[data-theme='kenya'] .task-select-card,
+html[data-theme='kenya'] .task-meta-box,
+html[data-theme='kenya'] .copy-box,
+html[data-theme='kenya'] .wallet-balance-card,
+html[data-theme='kenya'] .wallet-admin-stat,
+html[data-theme='kenya'] .streak-day-card,
+html[data-theme='kenya'] .proof-image-dialog,
+html[data-theme='kenya'] .admin-section-tab {
+  border-color: #e0e7dc;
+  background: #fff;
+  color: #26382c;
+}
+
+html[data-theme='kenya'] .queue-row:hover,
+html[data-theme='kenya'] .task-select-card:hover,
+html[data-theme='kenya'] .task-select-card.active,
+html[data-theme='kenya'] .admin-section-tab:hover,
+html[data-theme='kenya'] .admin-section-tab.active {
+  border-color: #c9ddca;
+  background: #edf7ef;
+  color: #174b2b;
+}
+
+html[data-theme='kenya'] input,
+html[data-theme='kenya'] textarea,
+html[data-theme='kenya'] select,
+html[data-theme='kenya'] .wallet-transaction-form input,
+html[data-theme='kenya'] .wallet-transaction-form select,
+html[data-theme='kenya'] .wallet-admin-filters select,
+html[data-theme='kenya'] .post-form-grid select {
+  border-color: #d3ddd2;
+  background: #fff;
+  color: #1d2b21;
+  color-scheme: light;
+}
+
+html[data-theme='kenya'] input::placeholder,
+html[data-theme='kenya'] textarea::placeholder,
+html[data-theme='kenya'] .wallet-review-details > small,
+html[data-theme='kenya'] .wallet-form-note,
+html[data-theme='kenya'] .review-disclaimer,
+html[data-theme='kenya'] .wallet-balance-card > span,
+html[data-theme='kenya'] .wallet-admin-stat > span,
+html[data-theme='kenya'] .streak-day-card > span,
+html[data-theme='kenya'] .streak-day-card > small {
+  color: #657469;
+}
+
+html[data-theme='kenya'] .wallet-summary,
+html[data-theme='kenya'] .wallet-transparency,
+html[data-theme='kenya'] .streak-hero {
+  background: linear-gradient(135deg, #eff8ed, #fff 68%, #fff4e9);
+}
+
+html[data-theme='kenya'] .status-approved,
+html[data-theme='kenya'] .wallet-balance-approved strong {
+  color: #087a3a;
+}
+
+html[data-theme='kenya'] .status-pending_review {
+  color: #9c5b00;
+}
+
+html[data-theme='kenya'] .status-rejected,
+html[data-theme='kenya'] .wallet-balance-rejected strong {
+  color: #a31219;
+}
+
+html[data-theme='kenya'] .status-badge.status-approved {
+  border-color: #b6ddc3;
+  background: #edf8f0;
+  color: #087a3a;
+}
+
+html[data-theme='kenya'] .status-badge.status-pending_review {
+  border-color: #edd39b;
+  background: #fff8e6;
+  color: #8b5700;
+}
+
+html[data-theme='kenya'] .status-badge.status-rejected {
+  border-color: #e7bcbc;
+  background: #fff0ef;
+  color: #a31219;
+}
+
 html[data-theme='light'] .submission-success {
   border-color: #b9dec5;
   background: #eef8f0;
@@ -4567,14 +5135,17 @@ html[data-theme='light'] .task-select-card.active {
 }
 
 @media (max-width: 680px) {
-  .theme-toggle {
-    gap: 6px;
-    min-height: 38px;
-    padding: 4px 8px;
+  .theme-picker {
+    gap: 1px;
+    padding: 3px;
   }
 
-  .theme-toggle-label,
-  .theme-toggle-track {
+  .theme-option {
+    min-height: 34px;
+    padding: 0 9px;
+  }
+
+  .theme-option-label {
     display: none;
   }
 }
