@@ -719,8 +719,8 @@ function validateTaskPost(input = {}) {
   if (!Number.isInteger(participantLimit) || participantLimit < 1 || participantLimit > 10000) {
     return { error: 'Participant count must be between 1 and 10,000.' };
   }
-  if (!Number.isFinite(payoutKes) || payoutKes < 10 || payoutKes > 100000) {
-    return { error: 'Reward per completion must be between KSh 10 and KSh 100,000.' };
+  if (!Number.isFinite(payoutKes) || payoutKes < 1 || payoutKes > 100000) {
+    return { error: 'Reward per completion must be between KSh 1 and KSh 100,000.' };
   }
   if (participantLimit * payoutKes > 10000000) {
     return { error: 'The total reward budget cannot exceed KSh 10,000,000.' };
