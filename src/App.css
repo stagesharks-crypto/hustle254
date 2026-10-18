@@ -4393,9 +4393,12 @@ html[data-theme='kenya'] {
 
 html[data-theme='kenya'] body {
   background:
-    radial-gradient(ellipse at 92% 10%, rgba(238, 119, 0, 0.14), transparent 26%),
-    radial-gradient(ellipse at 6% 46%, rgba(8, 122, 58, 0.12), transparent 28%),
-    linear-gradient(135deg, #fffaf1 0%, #f6f8ef 56%, #fff4eb 100%);
+    radial-gradient(ellipse at 90% 8%, rgba(255, 142, 32, 0.19), transparent 26%),
+    radial-gradient(ellipse at 4% 38%, rgba(8, 122, 58, 0.16), transparent 27%),
+    radial-gradient(ellipse at 84% 88%, rgba(187, 0, 0, 0.09), transparent 24%),
+    repeating-linear-gradient(135deg, transparent 0 76px, rgba(8, 122, 58, 0.018) 77px 79px, transparent 80px 150px),
+    linear-gradient(135deg, #fffaf1 0%, #f5f8ef 52%, #fff2e7 100%);
+  background-attachment: fixed;
   color: var(--text-main);
 }
 
@@ -4403,7 +4406,7 @@ html[data-theme='kenya'] .app-shell {
   color: var(--text-main);
 }
 
-html[data-theme='kenya'] .app-content :where(h1, h2, h3, h4, p, label, small, strong, span, li, dt, dd, th, td, legend) {
+html[data-theme='kenya'] :where(h1, h2, h3, h4, p, label, small, strong, span, li, dt, dd, th, td, legend, div, button, a) {
   color: var(--text-main);
 }
 
@@ -4512,6 +4515,20 @@ html[data-theme='kenya'] .theme-option.active {
   color: #a64d00;
 }
 
+html[data-theme='kenya'] .auth-tabs {
+  border-color: #dfe6dc;
+  background: #f2f6ef;
+}
+
+html[data-theme='kenya'] .auth-tab {
+  color: #405247;
+}
+
+html[data-theme='kenya'] .auth-tab.active {
+  background: #087a3a;
+  color: #fff;
+}
+
 html[data-theme='kenya'] .page-top {
   border-bottom-color: rgba(8, 122, 58, 0.24);
 }
@@ -4601,18 +4618,6 @@ html[data-theme='kenya'] .opportunity-number,
 html[data-theme='kenya'] .opportunity-arrow,
 html[data-theme='kenya'] .streak-retry {
   color: #b45b00;
-}
-
-html[data-theme='kenya'] .app-content :where(h1, h2, h3, h4, p, label, small, strong, span, li, dt, dd, th, td, legend) {
-  color: inherit;
-}
-
-html[data-theme='kenya'] .app-content :where(h1, h2, h3, h4, strong, th) {
-  color: #17231b;
-}
-
-html[data-theme='kenya'] .app-content :where(p, small, label, li, dt, dd) {
-  color: #46584b;
 }
 
 html[data-theme='kenya'] .feature-card-action:focus-visible,
