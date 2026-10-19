@@ -26,7 +26,8 @@ const STREAK_REWARD_USD = '0.023';
 const STREAK_REWARD_KES = 2.94;
 const STREAK_TIME_ZONE = 'Africa/Nairobi';
 const USD_TO_KES = 128;
-const MINIMUM_WITHDRAWAL_KES = USD_TO_KES;
+const MINIMUM_WITHDRAWAL_KES = 50;
+const MAXIMUM_WITHDRAWAL_KES = 100000;
 const CPX_APP_ID = process.env.CPX_APP_ID || '';
 const CPX_SURVEY_IFRAME_URL = process.env.CPX_SURVEY_IFRAME_URL || '';
 const EMAIL_VERIFICATION_RESEND_SECONDS = 60;
@@ -1878,7 +1879,10 @@ app.post('/api/wallet/withdrawals', requireAuth, async (req, res) => {
   const destination = String(req.body?.destination || '').trim();
   if (!amount) return res.status(400).json({ message: 'Enter a valid withdrawal amount in KSh.' });
   if (amount < MINIMUM_WITHDRAWAL_KES) {
-    return res.status(400).json({ message: `The minimum withdrawal is $1.00 (${formatWithdrawalKes(MINIMUM_WITHDRAWAL_KES)}).` });
+    return res.status(400).json({ message: `The minimum withdrawal is ${formatWithdrawalKes(MINIMUM_WITHDRAWAL_KES)}.` });
+  }
+  if (amount > MAXIMUM_WITHDRAWAL_KES) {
+    return res.status(400).json({ message: `The maximum withdrawal is ${formatWithdrawalKes(MAXIMUM_WITHDRAWAL_KES)}.` });
   }
   const feeAmount = getWithdrawalFeeKes(amount);
   if (!allowedWithdrawalMethods.has(paymentMethod)) {
@@ -1886,6 +1890,16 @@ app.post('/api/wallet/withdrawals', requireAuth, async (req, res) => {
   }
   if (!destination || destination.length > 300) {
     return res.status(400).json({ message: 'Enter the account, wallet address, or destination details for the withdrawal.' });
+  }
+  if (paymentMethod === 'mpesa') {
+    const user = await findUserById(req.user.sub);
+    const registeredPhone = normalizePhoneForComparison(user?.phone);
+    if (!registeredPhone) {
+      return res.status(409).json({ message: 'Add a phone number to your account before requesting an M-Pesa payout.' });
+    }
+    if (!hasMatchingPhone(destination, registeredPhone)) {
+      return res.status(400).json({ message: 'For account safety, M-Pesa payouts can only be sent to the phone number registered to your Hustle254 account.' });
+    }
   }
 
   if (databaseOnline) {
@@ -1928,7 +1942,7 @@ app.post('/api/wallet/withdrawals', requireAuth, async (req, res) => {
       connection.release();
     }
     return res.status(201).json({
-      message: 'Your withdrawal request has been submitted. The requested amount is reserved until it is completed or declined.',
+      message: 'Your withdrawal request has been submitted and will be processed within 5 minutes. Transfer arrival time may vary by payout provider. The requested amount is reserved until it is completed or declined.',
       transaction,
     });
   }
@@ -1953,7 +1967,7 @@ app.post('/api/wallet/withdrawals', requireAuth, async (req, res) => {
   };
   mockWalletTransactions.unshift(transaction);
   return res.status(201).json({
-    message: 'Your withdrawal request has been submitted. The requested amount is reserved until it is completed or declined.',
+    message: 'Your withdrawal request has been submitted and will be processed within 5 minutes. Transfer arrival time may vary by payout provider. The requested amount is reserved until it is completed or declined.',
     transaction,
   });
 });
