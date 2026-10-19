@@ -1206,6 +1206,18 @@ function TasksPage({ tasks, selectedTask, setSelectedTask, loading, error, sessi
   const [submittingProof, setSubmittingProof] = useState(false)
   const [proofError, setProofError] = useState('')
   const [proofSuccess, setProofSuccess] = useState('')
+  const proofRequirements = selectedTask?.proof_requirements || ''
+  const requiresProofImage = /\b(screenshot|screen shot|photo|image)\b/i.test(proofRequirements)
+  const usesUsdtPayout = /\bUSDT\b/i.test(selectedTask?.description || '') && /\bBEP20\b/i.test(selectedTask?.description || '')
+  const taskDescription = (selectedTask?.description || '')
+    .replace(/\s*your reward is granted automatically after proof is submitted\.?/i, ' Your reward is credited after your proof is reviewed and approved.')
+    .replace(/task payments? is in usdt\s*\(bep20\)\.?/i, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+  const campaignUrl = selectedTask?.task_url?.replace(
+    /^https:\/\/t\.me\/huste254\/?$/i,
+    'https://t.me/hustle254'
+  )
 
   async function submitProof(event) {
     event.preventDefault()
@@ -1218,6 +1230,9 @@ function TasksPage({ tasks, selectedTask, setSelectedTask, loading, error, sessi
       const formData = new FormData(form)
       const image = formData.get('proofImage')
       let imageUrl = ''
+      if (requiresProofImage && (!(image instanceof File) || image.size === 0)) {
+        throw new Error('Upload the image requested in the proof instructions.')
+      }
       if (image instanceof File && image.size > 0) {
         if (!image.type.startsWith('image/')) throw new Error('Choose an image file for your proof.')
         if (image.size > 3 * 1024 * 1024) throw new Error('Proof images must be 3 MB or smaller.')
@@ -1296,30 +1311,35 @@ function TasksPage({ tasks, selectedTask, setSelectedTask, loading, error, sessi
           </div>
 
           <h2>{selectedTask.title}</h2>
-          <p>{selectedTask.description}</p>
+          <p>{taskDescription}</p>
 
           <div className="task-meta-box">
+            <span>Reward: {selectedTask.amount}</span>
+            {usesUsdtPayout && <span>Payout: USDT (BEP20), converted from the KSh reward at payout</span>}
+            <span>Approval: proof reviewed before reward credit</span>
             <span>Duration: {selectedTask.duration}</span>
             <span>Risk: {selectedTask.risk}</span>
-            <span>Proof: live camera capture</span>
+            <span>Proof: {requiresProofImage ? 'image upload required' : 'follow the instructions below'}</span>
             {selectedTask.participant_limit && <span>Available spots: {selectedTask.participant_limit}</span>}
             {selectedTask.due_date && <span>Due: {new Date(selectedTask.due_date).toLocaleDateString('en-KE')}</span>}
           </div>
 
-          {selectedTask.task_url && (
-            <a className="task-external-link" href={selectedTask.task_url} target="_blank" rel="noreferrer">
+          {campaignUrl && (
+            <a className="task-external-link" href={campaignUrl} target="_blank" rel="noreferrer">
               Open campaign instructions <span aria-hidden="true">↗</span>
             </a>
           )}
 
           <form className="proof-form" onSubmit={submitProof}>
             <div className="warning-banner">
-              Choose or capture a proof image. Uploaded image files are limited to 3 MB.
+              {requiresProofImage
+                ? 'Upload the image requested in the proof instructions. Image files are limited to 3 MB.'
+                : 'Upload an image if the proof instructions require one. Image files are limited to 3 MB.'}
             </div>
 
             <label>
               Proof instructions
-              <textarea readOnly value={selectedTask.proof_requirements || 'Take one clear live photo showing the task completion clearly. Keep the image in the current session and make sure the task is visible in the frame.'} />
+              <textarea readOnly value={proofRequirements || 'Follow the task instructions and provide clear evidence of completion.'} />
             </label>
 
             <label>
@@ -1327,8 +1347,8 @@ function TasksPage({ tasks, selectedTask, setSelectedTask, loading, error, sessi
               <textarea name="notes" maxLength="2000" placeholder="Add any task completion details the reviewer needs." />
             </label>
             <label>
-              Proof image (optional)
-              <input name="proofImage" type="file" accept="image/*" capture="environment" />
+              Proof image {requiresProofImage ? '(required)' : '(optional)'}
+              <input name="proofImage" type="file" accept="image/*" required={requiresProofImage} />
             </label>
 
             {proofError && <div className="form-error" role="alert">{proofError}</div>}
