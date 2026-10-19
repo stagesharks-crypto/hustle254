@@ -3271,7 +3271,6 @@ function TermsPage() {
         <section><h3>6. Acceptable use</h3><p>Do not submit false proof, interfere with platform security, exploit errors, impersonate others, or use the platform for unlawful activity. We may restrict or suspend an account when reasonably necessary to protect users, task posters, or the platform, and may request additional information to review a case.</p></section>
         <section><h3>7. Availability and changes</h3><p>Task availability, reward amounts, and features may change. Hustle254 does not guarantee a particular volume of tasks, earnings, or payout timing. We will make reasonable efforts to keep the service available and communicate material changes through the platform where appropriate.</p></section>
         <section><h3>8. Questions and disputes</h3><p>Contact us with the account email and relevant task or transaction reference so we can review the issue. These terms should be read together with the Privacy Policy and Earning &amp; Reward Rules.</p></section>
-        <p className="info-review-note">Before public launch, confirm these terms against the registered operating entity, final payout timelines, and any applicable local legal requirements.</p>
       </div>
     </div>
   )
@@ -3294,7 +3293,6 @@ function PrivacyPage() {
         <section><h3>Security and retention</h3><p>We use safeguards intended to protect account and transaction information. No online system can promise absolute security. We retain information for as long as needed for the purposes above, including account support, fraud review, financial records, and legal requirements.</p></section>
         <section><h3>Your choices and requests</h3><p>You may contact us to ask about your information, request correction, or raise a privacy concern. Some records may need to be retained to meet legal, security, or transaction obligations. We will review requests in line with applicable requirements.</p></section>
         <section><h3>Contact</h3><p>For privacy questions, email <a href="mailto:hustleworld254@gmail.com">hustleworld254@gmail.com</a> or call/WhatsApp <a href="tel:+254736677630">+254 736 677 630</a>.</p></section>
-        <p className="info-review-note">Before public launch, confirm the operating entity, service providers, data-retention periods, and privacy-request process match actual operations and applicable law.</p>
       </div>
     </div>
   )

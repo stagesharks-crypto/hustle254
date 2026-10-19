@@ -1455,18 +1455,9 @@ textarea {
   padding-left: 22px;
 }
 
-.info-updated,
-.info-review-note {
+.info-updated {
   color: #899a91;
   font-size: 0.84rem;
-}
-
-.info-review-note {
-  margin: 20px 0 0;
-  padding: 14px 16px;
-  border-left: 3px solid #c5ed6f;
-  background: rgba(197, 237, 111, 0.06);
-  line-height: 1.6;
 }
 
 .learn-section {
@@ -5060,12 +5051,6 @@ html[data-theme='light'] .info-callout {
   background: linear-gradient(135deg, #f1f6e9, #fff 65%);
 }
 
-html[data-theme='light'] .info-review-note {
-  border-left-color: #739b36;
-  background: #f4f8ec;
-  color: #536258;
-}
-
 html[data-theme='light'] .contact-icon {
   border-color: #d9e6c7;
   background: #f0f5e7;
@@ -5326,6 +5311,111 @@ button:focus-visible {
     align-items: flex-start;
     flex-direction: column;
     gap: 8px;
+  }
+}
+
+.task-layout {
+  grid-template-columns: minmax(250px, 0.75fr) minmax(0, 1.55fr);
+  gap: 20px;
+}
+
+.task-list-panel,
+.task-detail-panel {
+  min-width: 0;
+}
+
+.task-select-card {
+  overflow-wrap: anywhere;
+}
+
+.task-select-card .task-headline {
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.task-select-card h3,
+.task-detail-panel h2,
+.task-detail-panel p,
+.task-external-link {
+  overflow-wrap: anywhere;
+}
+
+.task-meta-box {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+  gap: 10px;
+}
+
+.task-meta-box > span {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(225, 239, 228, 0.1);
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+
+.task-external-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.proof-form,
+.proof-form label {
+  min-width: 0;
+}
+
+.proof-form textarea,
+.proof-form input {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.proof-form input[type='file'] {
+  padding: 12px;
+}
+
+.warning-banner {
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  .task-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .task-list-panel {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 680px) {
+  .task-layout {
+    gap: 14px;
+  }
+
+  .task-detail-panel {
+    padding: 18px;
+  }
+
+  .task-detail-panel h2 {
+    font-size: clamp(1.45rem, 7vw, 1.9rem);
+    line-height: 1.2;
+  }
+
+  .task-meta-box {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .proof-actions .btn {
+    width: 100%;
   }
 }
 
