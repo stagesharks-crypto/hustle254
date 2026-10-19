@@ -3,7 +3,8 @@ import './App.css'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 const USD_TO_KES = 128
-const MINIMUM_WITHDRAWAL_KES = USD_TO_KES
+const MINIMUM_WITHDRAWAL_KES = 50
+const MAXIMUM_WITHDRAWAL_KES = 100000
 const depositPaymentDetails = [
   { method: 'M-Pesa direct', detail: 'Send to 0740582544.' },
   { method: 'M-Pesa Till', detail: 'Send to Till 4962757.' },
@@ -1752,7 +1753,7 @@ function WalletPage({ session, streakDate }) {
         <form className="wallet-transaction-form" onSubmit={submitWalletRequest}>
           <label>
             {mode === 'deposit' ? 'Amount (KSh)' : 'Withdrawal amount (KSh)'}
-            <input type="number" min={mode === 'withdraw' ? MINIMUM_WITHDRAWAL_KES : '1'} max="10000000" step="0.01" inputMode="decimal" value={amountKes} onChange={(event) => setAmountKes(event.target.value)} required />
+            <input type="number" min={mode === 'withdraw' ? MINIMUM_WITHDRAWAL_KES : '1'} max={mode === 'withdraw' ? MAXIMUM_WITHDRAWAL_KES : '10000000'} step="0.01" inputMode="decimal" value={amountKes} onChange={(event) => setAmountKes(event.target.value)} required />
           </label>
           {mode === 'deposit' ? <>
             <label>
@@ -1781,10 +1782,12 @@ function WalletPage({ session, streakDate }) {
               <input value={destination} onChange={(event) => setDestination(event.target.value)} maxLength="300" required placeholder="Enter the destination details for your payout" />
             </label>
             <div className="withdrawal-fee-note wallet-form-wide">
-              <strong>Minimum request: {formatKesWithUsd(MINIMUM_WITHDRAWAL_KES)}</strong>
-              <p>Service and risk costs: KSh 10 for KSh 128–384 ($1.00–$3.00); KSh 15 above KSh 384 through KSh 896 ($3.01–$7.00); KSh 25 above KSh 896 (over $7.00).</p>
+              <strong>Withdrawal range: {formatKesWithUsd(MINIMUM_WITHDRAWAL_KES)}–{formatKesWithUsd(MAXIMUM_WITHDRAWAL_KES)}</strong>
+              <p>Service and risk costs: KSh 10 for KSh 50–384 (up to $3.00); KSh 15 above KSh 384 through KSh 896 (over $3.00–$7.00); KSh 25 above KSh 896 (over $7.00).</p>
               {Number(amountKes) >= MINIMUM_WITHDRAWAL_KES && <p>Request: {formatKesWithUsd(amountKes)} · Fee: {formatKes(getWithdrawalFeeKes(amountKes))} · Estimated payout: {formatKesWithUsd(Number(amountKes) - getWithdrawalFeeKes(amountKes))}</p>}
               <p>Only confirmed, eligible wallet funds are accepted. Your request stays visible in transaction history; the available amount is reserved while it is being processed.</p>
+              <p>Withdrawal requests are processed within 5 minutes. The time for funds to arrive may vary by payout provider.</p>
+              {paymentMethod === 'mpesa' && <p>For account safety, M-Pesa payouts are sent only to the phone number registered to your Hustle254 account. Use the same number shown in your profile; payments cannot be sent to a different number.</p>}
             </div>
           </>}
           <button type="submit" className="btn btn-primary wallet-form-wide" disabled={submitting}>
@@ -3286,10 +3289,10 @@ function TermsPage() {
         <section><h3>1. Your account</h3><p>Provide accurate account details, keep your sign-in credentials private, and use your own account. You are responsible for activity carried out through your account. Contact support promptly if you suspect unauthorized access.</p></section>
         <section><h3>2. Tasks and submissions</h3><p>Read the instructions, eligibility criteria, time limits, and displayed reward before starting. Submit genuine, complete work and only the proof requested. A submission may be reviewed and can be declined if it does not meet the stated requirements or cannot be verified.</p></section>
         <section><h3>3. Rewards and wallet</h3><p>Task rewards are subject to completion and verification against the task requirements. A reward is added to your confirmed, eligible wallet balance only after approval. Pending deposits, pending submissions, reserved amounts, and other unconfirmed amounts are not eligible for withdrawal. Wallet activity is recorded in your transaction history.</p></section>
-        <section><h3>4. Withdrawal minimum and service fees</h3><p>The minimum withdrawal request is KSh 128 ($1.00), using the platform’s displayed reference rate of KSh 128 per US dollar. A service and risk fee is deducted from the requested amount: KSh 10 for requests from KSh 128 through KSh 384 ($1.00–$3.00); KSh 15 for amounts above KSh 384 through KSh 896 (over $3.00 through $7.00); and KSh 25 for amounts above KSh 896 (over $7.00). The remaining amount is the estimated payout. The fee covers processing, fraud-risk controls, and related operating costs; it is not a tax imposed by a government. The rate and fees will be shown before you submit the request.</p></section>
+        <section><h3>4. Withdrawal limits and service fees</h3><p>Withdrawal requests must be between KSh 50 and KSh 100,000. A service and risk fee is deducted from the requested amount: KSh 10 for requests from KSh 50 through KSh 384 (up to $3.00 at the platform’s reference rate of KSh 128 per US dollar); KSh 15 for amounts above KSh 384 through KSh 896 (over $3.00 through $7.00); and KSh 25 for amounts above KSh 896 (over $7.00). The remaining amount is the estimated payout. The fee covers processing, fraud-risk controls, and related operating costs; it is not a tax imposed by a government. The rate and fees will be shown before you submit the request.</p></section>
         <section><h3>5. Referral and affiliation rewards</h3><p>Referral codes are optional at registration. A referrer earns a one-time KSh 5 after a referred tasker completes a task submission approved by an administrator, or KSh 30 after a referred poster’s first task is approved and the poster’s administrator-verified deposits cover that task’s posted budget. The reward is credited to the referrer’s available wallet balance after verification. Only direct referrals qualify; self-referrals, duplicate accounts, and manipulated activity are not eligible. We may withhold or reverse an improperly credited reward after review.</p></section>
         <section><h3>6. Acceptable use</h3><p>Do not submit false proof, interfere with platform security, exploit errors, impersonate others, or use the platform for unlawful activity. We may restrict or suspend an account when reasonably necessary to protect users, task posters, or the platform, and may request additional information to review a case.</p></section>
-        <section><h3>7. Availability and changes</h3><p>Task availability, reward amounts, and features may change. Hustle254 does not guarantee a particular volume of tasks, earnings, or payout timing. We will make reasonable efforts to keep the service available and communicate material changes through the platform where appropriate.</p></section>
+        <section><h3>7. Availability and changes</h3><p>Task availability, reward amounts, and features may change. Withdrawal requests are processed within 5 minutes. The time for funds to arrive after processing may vary by payout provider. We will make reasonable efforts to keep the service available and communicate material changes through the platform where appropriate.</p></section>
         <section><h3>8. Questions and disputes</h3><p>Contact us with the account email and relevant task or transaction reference so we can review the issue. These terms should be read together with the Privacy Policy and Earning &amp; Reward Rules.</p></section>
       </div>
     </div>
@@ -3330,7 +3333,7 @@ function EarningRulesPage({ setCurrentPage }) {
         <section className="panel info-panel"><span className="tag">01 · Choose</span><h3>Check the offer first</h3><p>Review the task description, eligibility, requested proof, deadline, and displayed KSh reward. A task may close or reach its participant limit.</p></section>
         <section className="panel info-panel"><span className="tag">02 · Complete</span><h3>Follow the instructions</h3><p>Complete the required action yourself and provide accurate proof through the method requested. Do not submit altered, recycled, or misleading evidence.</p></section>
         <section className="panel info-panel"><span className="tag">03 · Review</span><h3>Allow time for verification</h3><p>Submissions may remain pending while they are reviewed. Only approved and credited rewards become part of the available wallet balance.</p></section>
-        <section className="panel info-panel"><span className="tag">04 · Request</span><h3>Use correct payout details</h3><p>When requesting a withdrawal, choose a supported method, provide accurate destination details, and allow time for review. Never share your password or verification code to receive a payout.</p></section>
+        <section className="panel info-panel"><span className="tag">04 · Request</span><h3>Use correct payout details</h3><p>Withdrawal requests are processed within 5 minutes; transfer arrival time may vary by payout provider. For M-Pesa, use the phone number registered to your Hustle254 account and shown in your profile. Payments cannot be sent to a different number for account safety. Never share your password or verification code to receive a payout.</p></section>
       </div>
       <section className="panel info-panel info-callout">
         <h3>Daily login streak bonus</h3>
@@ -3338,7 +3341,7 @@ function EarningRulesPage({ setCurrentPage }) {
       </section>
       <section className="panel info-panel">
         <h3>Withdrawals and fee schedule</h3>
-        <p>Minimum withdrawal request: {formatKesWithUsd(MINIMUM_WITHDRAWAL_KES)}. A KSh 10 fee applies to KSh 128–384 ($1.00–$3.00); KSh 15 applies above KSh 384 through KSh 896 (over $3.00 through $7.00); KSh 25 applies above KSh 896 (over $7.00). The fee is deducted from the requested amount, so the estimated payout is the request less the applicable fee. Requests may use only confirmed and eligible wallet funds. The KSh 128 per USD figure is a fixed display and fee-band reference, not a live exchange quote.</p>
+        <p>Withdrawal requests must be between {formatKesWithUsd(MINIMUM_WITHDRAWAL_KES)} and {formatKesWithUsd(MAXIMUM_WITHDRAWAL_KES)}. A KSh 10 fee applies to KSh 50–384 (up to $3.00 at the reference rate); KSh 15 applies above KSh 384 through KSh 896 (over $3.00 through $7.00); KSh 25 applies above KSh 896 (over $7.00). The fee is deducted from the requested amount, so the estimated payout is the request less the applicable fee. Requests may use only confirmed and eligible wallet funds. Withdrawal requests are processed within 5 minutes; transfer arrival time may vary by payout provider. For M-Pesa, payouts are sent only to the phone number registered to your account and matching your profile. The KSh 128 per USD figure is a fixed display and fee-band reference, not a live exchange quote.</p>
       </section>
       <section className="panel info-panel">
         <h3>Fair-play rules</h3>
