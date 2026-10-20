@@ -1207,6 +1207,11 @@ function TasksPage({ tasks, selectedTask, setSelectedTask, loading, error, sessi
   const [submittingProof, setSubmittingProof] = useState(false)
   const [proofError, setProofError] = useState('')
   const [proofSuccess, setProofSuccess] = useState('')
+  const [taskFilter, setTaskFilter] = useState('all')
+  const filterTasks = (filter) => filter === 'all'
+    ? tasks
+    : tasks.filter((task) => String(task.category || '').toLowerCase() === (filter === 'surveys' ? 'survey' : 'social'))
+  const visibleTasks = filterTasks(taskFilter)
   const proofRequirements = selectedTask?.proof_requirements || ''
   const requiresProofImage = /\b(screenshot|screen shot|photo|image)\b/i.test(proofRequirements)
   const usesUsdtPayout = /\bUSDT\b/i.test(selectedTask?.description || '') && /\bBEP20\b/i.test(selectedTask?.description || '')
@@ -1219,6 +1224,14 @@ function TasksPage({ tasks, selectedTask, setSelectedTask, loading, error, sessi
     /^https:\/\/t\.me\/huste254\/?$/i,
     'https://t.me/hustle254'
   )
+
+  function selectTaskFilter(filter) {
+    setTaskFilter(filter)
+    const nextTasks = filterTasks(filter)
+    if (nextTasks.length > 0 && !nextTasks.some((task) => task.id === selectedTask?.id)) {
+      setSelectedTask(nextTasks[0].id)
+    }
+  }
 
   async function submitProof(event) {
     event.preventDefault()
@@ -1276,16 +1289,28 @@ function TasksPage({ tasks, selectedTask, setSelectedTask, loading, error, sessi
 
       <div className="task-layout">
         <aside className="panel task-list-panel">
-          <div className="toolbar compact-toolbar">
-            <button type="button" className="pill active">All</button>
-            <button type="button" className="pill">Surveys</button>
-            <button type="button" className="pill">Social</button>
+          <div className="toolbar compact-toolbar" role="group" aria-label="Filter tasks by category">
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'surveys', label: 'Surveys' },
+              { id: 'social', label: 'Social' },
+            ].map((filter) => (
+              <button
+                key={filter.id}
+                type="button"
+                className={taskFilter === filter.id ? 'pill active' : 'pill'}
+                aria-pressed={taskFilter === filter.id}
+                onClick={() => selectTaskFilter(filter.id)}
+              >
+                {filter.label}
+              </button>
+            ))}
           </div>
 
           {error && <div className="form-error" role="alert">{error}</div>}
           {loading && <p>Loading tasks…</p>}
-          {!loading && !error && tasks.length === 0 && <p>No active tasks are currently available.</p>}
-          {tasks.map((task) => (
+          {!loading && !error && visibleTasks.length === 0 && <p>{tasks.length === 0 ? 'No active tasks are currently available.' : `No ${taskFilter} tasks are currently available.`}</p>}
+          {visibleTasks.map((task) => (
             <button
               key={task.id}
               type="button"
